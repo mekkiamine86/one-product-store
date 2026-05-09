@@ -9,6 +9,7 @@ import OrderCTA from '@/components/OrderCTA';
 import OrderForm from '@/components/OrderForm';
 import Footer from '@/components/Footer';
 import type { Product } from '@/lib/supabase';
+export const dynamic = 'force-dynamic';
 
 const FALLBACK_PRODUCT: Product = {
   id: 'fallback',
