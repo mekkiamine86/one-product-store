@@ -1,13 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Product } from '@/lib/supabase';
 
 export default function ProductEditor() {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [imageMode, setImageMode] = useState<'upload' | 'url'>('upload');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch('/api/product')
@@ -30,6 +33,44 @@ export default function ProductEditor() {
 
   const update = (patch: Partial<Product>) => {
     setProduct((p) => (p ? { ...p, ...patch } : p));
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage({ type: 'error', text: 'الملف كبير جداً. الحد الأقصى 5 ميجابايت' });
+      return;
+    }
+
+    setUploading(true);
+    setMessage(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'فشل الرفع');
+
+      update({ image_url: data.url });
+      setMessage({ type: 'success', text: 'تم رفع الصورة بنجاح' });
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'فشل الرفع',
+      });
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      setTimeout(() => setMessage(null), 3500);
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -82,7 +123,6 @@ export default function ProductEditor() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Preview */}
         <div className="order-1 lg:order-2">
           <div className="sticky top-6">
             <div className="mb-3 text-xs font-medium uppercase tracking-wider text-black/50">معاينة</div>
@@ -110,7 +150,6 @@ export default function ProductEditor() {
           </div>
         </div>
 
-        {/* Form */}
         <div className="order-2 lg:order-1 space-y-5">
           <Field label="اسم المنتج">
             <input
@@ -155,19 +194,91 @@ export default function ProductEditor() {
             </Field>
           </div>
 
-          <Field label="رابط الصورة">
-            <input
-              type="url"
-              value={product.image_url}
-              onChange={(e) => update({ image_url: e.target.value })}
-              className={inputClass}
-              placeholder="https://..."
-              required
-            />
-            <p className="mt-1 text-xs text-black/50">
-              الصق رابط الصورة من أي مصدر خارجي (Imgur، Cloudinary، إلخ)
-            </p>
-          </Field>
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-sm font-medium text-black/80">صورة المنتج</span>
+              <div className="ml-auto flex gap-1 rounded-lg bg-neutral-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setImageMode('upload')}
+                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                    imageMode === 'upload' ? 'bg-white text-black shadow-sm' : 'text-black/60'
+                  }`}
+                >
+                  رفع من الكمبيوتر
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImageMode('url')}
+                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                    imageMode === 'url' ? 'bg-white text-black shadow-sm' : 'text-black/60'
+                  }`}
+                >
+                  رابط من الإنترنت
+                </button>
+              </div>
+            </div>
+
+            {imageMode === 'upload' ? (
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="image-upload"
+                />
+                <label
+                  htmlFor="image-upload"
+                  className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-black/20 bg-neutral-50 px-4 py-6 text-sm text-black/70 transition-colors hover:border-black/40 hover:bg-neutral-100 ${
+                    uploading ? 'pointer-events-none opacity-50' : ''
+                  }`}
+                >
+                  {uploading ? (
+                    <>
+                      <span className="spinner" />
+                      <span>جارٍ الرفع...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                      </svg>
+                      <span>اختر صورة من الكمبيوتر</span>
+                    </>
+                  )}
+                </label>
+                <p className="mt-1.5 text-xs text-black/50">
+                  JPG، PNG، WebP، GIF — حتى 5 ميجابايت
+                </p>
+              </div>
+            ) : (
+              <div>
+                <input
+                  type="url"
+                  value={product.image_url}
+                  onChange={(e) => update({ image_url: e.target.value })}
+                  className={inputClass}
+                  placeholder="https://..."
+                />
+                <p className="mt-1.5 text-xs text-black/50">
+                  الصق رابط الصورة من أي مصدر خارجي (Imgur، Cloudinary، إلخ)
+                </p>
+              </div>
+            )}
+
+            {product.image_url && imageMode === 'upload' && (
+              <div className="mt-2 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>الصورة جاهزة. اضغط حفظ لتطبيقها.</span>
+              </div>
+            )}
+          </div>
 
           {message && (
             <div
@@ -183,7 +294,7 @@ export default function ProductEditor() {
 
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || uploading}
             className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-black px-8 py-3.5 text-base font-medium text-white transition-all hover:bg-neutral-900 disabled:opacity-60 sm:w-auto"
           >
             {saving ? (
