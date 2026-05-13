@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { formatDate, formatMoney, orderStatusBadge } from '../../_lib/format';
@@ -87,7 +88,11 @@ export default async function MerchantDetailPage({
                 const b = orderStatusBadge(o.status);
                 return (
                   <tr key={o.id} className="border-t border-black/5">
-                    <td className="px-4 py-3 font-mono text-xs">{o.shopifyOrderName}</td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      <Link href={`/admin/whatsapp/orders/${o.id}`} className="text-emerald-700 hover:underline">
+                        {o.shopifyOrderName}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3">{o.customerName}</td>
                     <td className="px-4 py-3 tabular-nums">
                       {formatMoney(o.totalAmount, o.currency)}

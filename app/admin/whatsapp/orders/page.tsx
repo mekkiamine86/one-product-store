@@ -132,7 +132,11 @@ export default async function OrdersPage({
               const b = orderStatusBadge(o.status);
               return (
                 <tr key={o.id} className="border-t border-black/5">
-                  <td className="px-4 py-3 font-mono text-xs">{o.shopifyOrderName}</td>
+                  <td className="px-4 py-3 font-mono text-xs">
+                    <Link href={`/admin/whatsapp/orders/${o.id}`} className="text-emerald-700 hover:underline">
+                      {o.shopifyOrderName}
+                    </Link>
+                  </td>
                   <td className="px-4 py-3 text-black/70">{o.merchant.shopifyDomain}</td>
                   <td className="px-4 py-3">{o.customerName}</td>
                   <td className="px-4 py-3 font-mono text-xs">{o.customerPhone}</td>
