@@ -1,0 +1,153 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+
+interface Props {
+  merchantId: string;
+  initial: {
+    email: string;
+    name: string;
+    whatsappFromNumber: string;
+    whatsappTemplateSid: string;
+    defaultCountryCode: string;
+    isActive: boolean;
+  };
+}
+
+export default function SettingsForm({ merchantId, initial }: Props) {
+  const router = useRouter();
+  const [form, setForm] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const update = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
+    setForm((f) => ({ ...f, [key]: value }));
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setStatus(null);
+    try {
+      const res = await fetch(`/api/admin/whatsapp/merchants/${merchantId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Save failed');
+      setStatus({ ok: true, msg: 'Saved.' });
+      router.refresh();
+    } catch (err) {
+      setStatus({ ok: false, msg: err instanceof Error ? err.message : 'Save failed' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="grid gap-4 md:grid-cols-2">
+      <Field label="Contact email">
+        <input
+          type="email"
+          value={form.email}
+          onChange={(e) => update('email', e.target.value)}
+          className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm focus:border-black focus:outline-none"
+        />
+      </Field>
+      <Field label="Display name">
+        <input
+          type="text"
+          value={form.name}
+          onChange={(e) => update('name', e.target.value)}
+          className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm focus:border-black focus:outline-none"
+        />
+      </Field>
+
+      <Field
+        label="WhatsApp sender (E.164)"
+        hint='Twilio number, e.g. "+14155238886".'
+      >
+        <input
+          type="text"
+          inputMode="tel"
+          placeholder="+14155238886"
+          value={form.whatsappFromNumber}
+          onChange={(e) => update('whatsappFromNumber', e.target.value)}
+          className="w-full rounded-lg border border-black/15 px-3 py-2 font-mono text-sm focus:border-black focus:outline-none"
+        />
+      </Field>
+
+      <Field
+        label="Twilio Content SID"
+        hint='Approved template with "Confirm" / "Cancel" quick-reply buttons.'
+      >
+        <input
+          type="text"
+          placeholder="HXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          value={form.whatsappTemplateSid}
+          onChange={(e) => update('whatsappTemplateSid', e.target.value)}
+          className="w-full rounded-lg border border-black/15 px-3 py-2 font-mono text-sm focus:border-black focus:outline-none"
+        />
+      </Field>
+
+      <Field
+        label="Default country (ISO-3166-1 alpha-2)"
+        hint='Used to parse local-form phone numbers. e.g. "DZ", "MA", "EG".'
+      >
+        <input
+          type="text"
+          maxLength={2}
+          value={form.defaultCountryCode}
+          onChange={(e) => update('defaultCountryCode', e.target.value.toUpperCase())}
+          className="w-20 rounded-lg border border-black/15 px-3 py-2 text-center font-mono text-sm uppercase focus:border-black focus:outline-none"
+        />
+      </Field>
+
+      <Field label="Status">
+        <label className="inline-flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={form.isActive}
+            onChange={(e) => update('isActive', e.target.checked)}
+            className="h-4 w-4 rounded"
+          />
+          <span className="text-sm">Active</span>
+        </label>
+      </Field>
+
+      <div className="col-span-full flex items-center gap-3">
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-full bg-black px-5 py-2 text-sm font-medium text-white hover:bg-neutral-900 disabled:opacity-60"
+        >
+          {saving ? 'Saving…' : 'Save changes'}
+        </button>
+        {status && (
+          <span className={`text-sm ${status.ok ? 'text-emerald-700' : 'text-red-700'}`}>
+            {status.msg}
+          </span>
+        )}
+      </div>
+    </form>
+  );
+}
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium text-black/70">{label}</span>
+      {children}
+      {hint && <span className="mt-1 block text-xs text-black/50">{hint}</span>}
+    </label>
+  );
+}
