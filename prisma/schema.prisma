@@ -1,0 +1,130 @@
+// =============================================================================
+// Prisma schema for the WhatsApp COD Order-Confirmation SaaS
+// -----------------------------------------------------------------------------
+// Run:
+//   npx prisma migrate dev --name init   (development)
+//   npx prisma migrate deploy            (production)
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums -----------------------------------------------------------
+
+enum OrderStatus {
+  PENDING_CONFIRMATION // WhatsApp message sent, awaiting customer reply
+  CONFIRMED            // Customer confirmed → order tagged in Shopify
+  CANCELLED            // Customer cancelled → order cancelled in Shopify
+  EXPIRED              // No reply within the configured window
+  FAILED               // Pipeline failed (e.g. WhatsApp send error)
+}
+
+enum WhatsAppDirection {
+  OUTBOUND // We → customer
+  INBOUND  // Customer → us
+}
+
+enum WhatsAppMessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  RECEIVED // for INBOUND
+}
+
+// ---------- Models ----------------------------------------------------------
+
+/// A merchant (store owner) using the SaaS. One Shopify shop per merchant.
+/// In production, encrypt `shopifyAccessToken` at rest.
+model Merchant {
+  id                   String   @id @default(cuid())
+  email                String   @unique
+  name                 String?
+
+  // Shopify
+  shopifyDomain        String   @unique // e.g. "my-store.myshopify.com"
+  shopifyAccessToken   String              // Admin API token (encrypt in prod)
+  shopifyWebhookSecret String              // per-merchant HMAC secret
+
+  // WhatsApp / Twilio
+  whatsappFromNumber   String              // E.164, e.g. "+14155238886"
+  whatsappTemplateSid  String?             // Twilio Content SID for the
+                                           // approved confirmation template
+
+  // Defaults / settings
+  defaultCountryCode   String   @default("DZ") // ISO-3166-1 alpha-2 used when
+                                                // normalising local phone
+                                                // numbers from Shopify orders.
+  isActive             Boolean  @default(true)
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  orders               Order[]
+  whatsappLogs         WhatsAppLog[]
+
+  @@index([shopifyDomain])
+}
+
+/// A Shopify order tracked through the confirmation pipeline.
+model Order {
+  id                 String      @id @default(cuid())
+  merchantId         String
+  merchant           Merchant    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  shopifyOrderId     String                  // numeric id from Shopify
+  shopifyOrderName   String                  // human-readable, e.g. "#1024"
+  customerName       String
+  customerPhone      String                  // normalised to E.164
+  customerEmail      String?
+  totalAmount        Decimal     @db.Decimal(12, 2)
+  currency           String      @db.VarChar(8)
+  lineItemsSummary   String?                 // short text, e.g. "2x T-Shirt"
+
+  status             OrderStatus @default(PENDING_CONFIRMATION)
+  confirmationSentAt DateTime?
+  respondedAt        DateTime?
+  shopifyUpdatedAt   DateTime?
+
+  rawShopifyPayload  Json?                   // for debugging / replays
+
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  whatsappLogs       WhatsAppLog[]
+
+  @@unique([merchantId, shopifyOrderId])
+  @@index([merchantId, customerPhone, status])
+  @@index([status, createdAt])
+}
+
+/// Append-only log of every WhatsApp message (outbound + inbound).
+model WhatsAppLog {
+  id                String                @id @default(cuid())
+  merchantId        String
+  merchant          Merchant              @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  orderId           String?
+  order             Order?                @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  direction         WhatsAppDirection
+  providerMessageId String?               @unique // Twilio SID
+  fromNumber        String
+  toNumber          String
+  body              String?
+  buttonPayload     String?               // for quick-reply / list replies
+  status            WhatsAppMessageStatus
+  errorMessage      String?
+  rawPayload        Json?
+
+  createdAt         DateTime              @default(now())
+
+  @@index([merchantId, createdAt])
+  @@index([orderId])
+}
