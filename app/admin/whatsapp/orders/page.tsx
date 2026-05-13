@@ -32,7 +32,7 @@ export default async function OrdersPage({
     where.OR = [
       { customerName: { contains: q, mode: 'insensitive' } },
       { customerPhone: { contains: q } },
-      { shopifyOrderName: { contains: q, mode: 'insensitive' } },
+      { youcanOrderRef: { contains: q, mode: 'insensitive' } },
     ];
   }
 
@@ -44,12 +44,12 @@ export default async function OrdersPage({
       orderBy: { createdAt: 'desc' },
       take: PAGE_SIZE,
       skip: (page - 1) * PAGE_SIZE,
-      include: { merchant: { select: { id: true, shopifyDomain: true } } },
+      include: { merchant: { select: { id: true, youcanStoreSlug: true } } },
     }),
     prisma.order.count({ where }),
     prisma.merchant.findMany({
-      select: { id: true, shopifyDomain: true },
-      orderBy: { shopifyDomain: 'asc' },
+      select: { id: true, youcanStoreSlug: true },
+      orderBy: { youcanStoreSlug: 'asc' },
     }),
   ]);
 
@@ -91,7 +91,7 @@ export default async function OrdersPage({
           >
             <option value="">All merchants</option>
             {merchants.map((m) => (
-              <option key={m.id} value={m.id}>{m.shopifyDomain}</option>
+              <option key={m.id} value={m.id}>{m.youcanStoreSlug}</option>
             ))}
           </select>
         </label>
@@ -134,10 +134,10 @@ export default async function OrdersPage({
                 <tr key={o.id} className="border-t border-black/5">
                   <td className="px-4 py-3 font-mono text-xs">
                     <Link href={`/admin/whatsapp/orders/${o.id}`} className="text-emerald-700 hover:underline">
-                      {o.shopifyOrderName}
+                      {o.youcanOrderRef}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-black/70">{o.merchant.shopifyDomain}</td>
+                  <td className="px-4 py-3 text-black/70">{o.merchant.youcanStoreSlug}</td>
                   <td className="px-4 py-3">{o.customerName}</td>
                   <td className="px-4 py-3 font-mono text-xs">{o.customerPhone}</td>
                   <td className="px-4 py-3 tabular-nums">

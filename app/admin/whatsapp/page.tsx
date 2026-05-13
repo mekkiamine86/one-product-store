@@ -18,7 +18,7 @@ async function getStats() {
     prisma.order.findMany({
       take: 10,
       orderBy: { createdAt: 'desc' },
-      include: { merchant: { select: { shopifyDomain: true } } },
+      include: { merchant: { select: { youcanStoreSlug: true } } },
     }),
     prisma.order.groupBy({
       by: ['status'],
@@ -111,10 +111,10 @@ export default async function OverviewPage() {
                   <tr key={o.id} className="border-t border-black/5">
                     <td className="px-4 py-3 font-mono text-xs">
                       <Link href={`/admin/whatsapp/orders/${o.id}`} className="text-emerald-700 hover:underline">
-                        {o.shopifyOrderName}
+                        {o.youcanOrderRef}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-black/70">{o.merchant.shopifyDomain}</td>
+                    <td className="px-4 py-3 text-black/70">{o.merchant.youcanStoreSlug}</td>
                     <td className="px-4 py-3">{o.customerName}</td>
                     <td className="px-4 py-3 tabular-nums">
                       {formatMoney(o.totalAmount, o.currency)}

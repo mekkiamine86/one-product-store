@@ -1,5 +1,5 @@
 // =============================================================================
-// Prisma schema for the WhatsApp COD Order-Confirmation SaaS
+// Prisma schema for the WhatsApp COD Order-Confirmation SaaS (YouCan edition)
 // -----------------------------------------------------------------------------
 // Run:
 //   npx prisma migrate dev --name init   (development)
@@ -19,8 +19,8 @@ datasource db {
 
 enum OrderStatus {
   PENDING_CONFIRMATION // WhatsApp message sent, awaiting customer reply
-  CONFIRMED            // Customer confirmed → order tagged in Shopify
-  CANCELLED            // Customer cancelled → order cancelled in Shopify
+  CONFIRMED            // Customer confirmed → order marked confirmed in YouCan
+  CANCELLED            // Customer cancelled → order cancelled in YouCan
   EXPIRED              // No reply within the configured window
   FAILED               // Pipeline failed (e.g. WhatsApp send error)
 }
@@ -41,46 +41,47 @@ enum WhatsAppMessageStatus {
 
 // ---------- Models ----------------------------------------------------------
 
-/// A merchant (store owner) using the SaaS. One Shopify shop per merchant.
-/// In production, encrypt `shopifyAccessToken` at rest.
+/// A merchant (store owner) using the SaaS. One YouCan store per merchant.
+/// In production, encrypt `youcanAccessToken` at rest.
 model Merchant {
-  id                   String   @id @default(cuid())
-  email                String   @unique
-  name                 String?
+  id                  String   @id @default(cuid())
+  email               String   @unique
+  name                String?
 
-  // Shopify
-  shopifyDomain        String   @unique // e.g. "my-store.myshopify.com"
-  shopifyAccessToken   String              // Admin API token (encrypt in prod)
-  shopifyWebhookSecret String              // per-merchant HMAC secret
+  // YouCan
+  youcanStoreSlug     String   @unique // e.g. "my-store.youcan.shop"
+  youcanAccessToken   String              // OAuth access token (encrypt in prod)
+  youcanRefreshToken  String?             // OAuth refresh token (encrypt in prod)
+  youcanWebhookSecret String              // shared secret used to sign webhooks
 
   // WhatsApp / Twilio
-  whatsappFromNumber   String              // E.164, e.g. "+14155238886"
-  whatsappTemplateSid  String?             // Twilio Content SID for the
+  whatsappFromNumber  String              // E.164, e.g. "+14155238886"
+  whatsappTemplateSid String?             // Twilio Content SID for the
                                            // approved confirmation template
 
   // Defaults / settings
-  defaultCountryCode   String   @default("DZ") // ISO-3166-1 alpha-2 used when
+  defaultCountryCode  String   @default("MA") // ISO-3166-1 alpha-2 used when
                                                 // normalising local phone
-                                                // numbers from Shopify orders.
-  isActive             Boolean  @default(true)
+                                                // numbers from YouCan orders.
+  isActive            Boolean  @default(true)
 
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  orders               Order[]
-  whatsappLogs         WhatsAppLog[]
+  orders              Order[]
+  whatsappLogs        WhatsAppLog[]
 
-  @@index([shopifyDomain])
+  @@index([youcanStoreSlug])
 }
 
-/// A Shopify order tracked through the confirmation pipeline.
+/// A YouCan order tracked through the confirmation pipeline.
 model Order {
   id                 String      @id @default(cuid())
   merchantId         String
   merchant           Merchant    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
 
-  shopifyOrderId     String                  // numeric id from Shopify
-  shopifyOrderName   String                  // human-readable, e.g. "#1024"
+  youcanOrderId      String                  // id from YouCan
+  youcanOrderRef     String                  // human-readable ref, e.g. "#1024"
   customerName       String
   customerPhone      String                  // normalised to E.164
   customerEmail      String?
@@ -91,16 +92,16 @@ model Order {
   status             OrderStatus @default(PENDING_CONFIRMATION)
   confirmationSentAt DateTime?
   respondedAt        DateTime?
-  shopifyUpdatedAt   DateTime?
+  youcanUpdatedAt    DateTime?
 
-  rawShopifyPayload  Json?                   // for debugging / replays
+  rawYoucanPayload   Json?                   // for debugging / replays
 
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
 
   whatsappLogs       WhatsAppLog[]
 
-  @@unique([merchantId, shopifyOrderId])
+  @@unique([merchantId, youcanOrderId])
   @@index([merchantId, customerPhone, status])
   @@index([status, createdAt])
 }

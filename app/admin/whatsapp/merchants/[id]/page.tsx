@@ -27,7 +27,7 @@ export default async function MerchantDetailPage({
     <div className="space-y-8">
       <header>
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold">{merchant.shopifyDomain}</h1>
+          <h1 className="text-2xl font-semibold">{merchant.youcanStoreSlug}</h1>
           {merchant.isActive ? (
             <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
               Active
@@ -90,7 +90,7 @@ export default async function MerchantDetailPage({
                   <tr key={o.id} className="border-t border-black/5">
                     <td className="px-4 py-3 font-mono text-xs">
                       <Link href={`/admin/whatsapp/orders/${o.id}`} className="text-emerald-700 hover:underline">
-                        {o.shopifyOrderName}
+                        {o.youcanOrderRef}
                       </Link>
                     </td>
                     <td className="px-4 py-3">{o.customerName}</td>

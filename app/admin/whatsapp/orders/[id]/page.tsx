@@ -15,7 +15,7 @@ export default async function OrderDetailPage({
   const order = await prisma.order.findUnique({
     where: { id: params.id },
     include: {
-      merchant: { select: { id: true, shopifyDomain: true } },
+      merchant: { select: { id: true, youcanStoreSlug: true } },
       whatsappLogs: { orderBy: { createdAt: 'desc' } },
     },
   });
@@ -30,7 +30,7 @@ export default async function OrderDetailPage({
           ← Back to orders
         </Link>
         <div className="mt-2 flex flex-wrap items-baseline gap-3">
-          <h1 className="font-mono text-2xl font-semibold">{order.shopifyOrderName}</h1>
+          <h1 className="font-mono text-2xl font-semibold">{order.youcanOrderRef}</h1>
           <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}>
             {badge.label}
           </span>
@@ -38,7 +38,7 @@ export default async function OrderDetailPage({
             href={`/admin/whatsapp/merchants/${order.merchant.id}`}
             className="text-sm text-black/60 hover:text-black"
           >
-            {order.merchant.shopifyDomain}
+            {order.merchant.youcanStoreSlug}
           </Link>
         </div>
       </div>
@@ -136,10 +136,10 @@ export default async function OrderDetailPage({
       <section>
         <details className="rounded-2xl border border-black/5 bg-white">
           <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
-            Raw Shopify payload
+            Raw YouCan payload
           </summary>
           <pre className="max-h-96 overflow-auto border-t border-black/5 bg-neutral-50 px-4 py-3 text-xs">
-            {JSON.stringify(order.rawShopifyPayload, null, 2)}
+            {JSON.stringify(order.rawYoucanPayload, null, 2)}
           </pre>
         </details>
       </section>

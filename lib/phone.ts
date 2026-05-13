@@ -1,7 +1,7 @@
 // =============================================================================
 // Phone-number normalisation for COD markets.
 //
-// Handles the three forms a Shopify checkout typically produces:
+// Handles the three forms a YouCan checkout typically produces:
 //   1. Already-E.164:               "+213555000000"
 //   2. International "00" prefix:   "00213555000000"
 //   3. Local-form national number:  "0555000000" (uses merchant's default

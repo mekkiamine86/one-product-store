@@ -60,7 +60,7 @@ test('validateTwilioSignature rejects missing signature', () => {
 });
 
 test('normalizePhone parses local Algerian numbers with default country', () => {
-  // Common forms a Shopify COD checkout might send
+  // Common forms a YouCan COD checkout might send
   assert.equal(normalizePhone('0555000000', 'DZ'), '+213555000000');
   assert.equal(normalizePhone('+213 555 00 00 00', 'DZ'), '+213555000000');
 });

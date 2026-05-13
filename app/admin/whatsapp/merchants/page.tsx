@@ -20,7 +20,7 @@ export default async function MerchantsPage() {
         <table className="min-w-full text-sm">
           <thead className="bg-neutral-50 text-xs uppercase tracking-wide text-black/50">
             <tr>
-              <Th>Shopify domain</Th>
+              <Th>YouCan store</Th>
               <Th>Status</Th>
               <Th>WhatsApp sender</Th>
               <Th>Template</Th>
@@ -35,7 +35,7 @@ export default async function MerchantsPage() {
                 <td colSpan={7} className="px-4 py-10 text-center text-black/40">
                   No merchants yet. Send a merchant to{' '}
                   <code className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs">
-                    /api/shopify/install?shop=&lt;shop&gt;.myshopify.com
+                    /api/youcan/install
                   </code>
                   .
                 </td>
@@ -43,7 +43,7 @@ export default async function MerchantsPage() {
             )}
             {merchants.map((m) => (
               <tr key={m.id} className="border-t border-black/5">
-                <td className="px-4 py-3 font-medium">{m.shopifyDomain}</td>
+                <td className="px-4 py-3 font-medium">{m.youcanStoreSlug}</td>
                 <td className="px-4 py-3">
                   {m.isActive ? (
                     <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">

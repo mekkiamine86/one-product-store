@@ -2,7 +2,7 @@
 // Shared "send the COD confirmation for this order" logic.
 //
 // Used by:
-//   - app/api/webhooks/shopify/orders-create  (first attempt on order intake)
+//   - app/api/webhooks/youcan/order-create   (first attempt on order intake)
 //   - app/api/admin/whatsapp/orders/[id]/resend  (operator-triggered retry)
 //
 // Idempotency: the caller decides whether to invoke this. We always write a
@@ -51,7 +51,7 @@ export async function sendOrderConfirmation(
       toWhatsApp: toWhatsAppAddress(order.customerPhone),
       contentSid: merchant.whatsappTemplateSid,
       variables: {
-        '1': order.shopifyOrderName,
+        '1': order.youcanOrderRef,
         '2': firstName,
         '3': total,
       },
