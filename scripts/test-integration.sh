@@ -42,10 +42,14 @@ for dir in $(ls -d prisma/migrations/*/ | sort); do
 done
 
 export INTEGRATION_DATABASE_URL="postgresql://postgres@localhost:$PORT/$DB?host=$SOCKET_DIR"
+# Also export as DATABASE_URL so route handlers that import lib/prisma pick
+# up the ephemeral cluster. The unit tests don't touch prisma so the global
+# override is safe.
+export DATABASE_URL="$INTEGRATION_DATABASE_URL"
 # Run with `set +e` so a test failure doesn't skip the EXIT trap. Propagate
 # the exit code at the end.
 set +e
-npx tsx --test tests/integration/db.test.ts
+npx tsx --test tests/integration/db.test.ts tests/integration/cron.test.ts
 exit_code=$?
 set -e
 exit $exit_code
