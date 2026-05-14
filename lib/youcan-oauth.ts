@@ -3,6 +3,7 @@ import {
   YOUCAN_API_BASE,
   YOUCAN_SELLER_BASE,
   YoucanApiError,
+  youcanFetchWithRetry,
   type YoucanAuth,
 } from './youcan';
 import { log } from './log';
@@ -92,7 +93,7 @@ export async function exchangeAccessToken(opts: {
     code: opts.code,
     redirect_uri: `${cfg.appUrl}/api/youcan/callback`,
   });
-  const res = await fetch(`${YOUCAN_API_BASE}/oauth/token`, {
+  const res = await youcanFetchWithRetry(`${YOUCAN_API_BASE}/oauth/token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -136,7 +137,7 @@ export async function refreshAccessToken(opts: {
     client_secret: cfg.clientSecret,
     refresh_token: opts.refreshToken,
   });
-  const res = await fetch(`${YOUCAN_API_BASE}/oauth/token`, {
+  const res = await youcanFetchWithRetry(`${YOUCAN_API_BASE}/oauth/token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -235,7 +236,7 @@ export async function ensureWebhook(opts: {
   event: string;
   targetUrl: string;
 }): Promise<void> {
-  const res = await fetch(`${YOUCAN_API_BASE}/resthooks/subscribe`, {
+  const res = await youcanFetchWithRetry(`${YOUCAN_API_BASE}/resthooks/subscribe`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${opts.accessToken}`,

@@ -42,4 +42,10 @@ for dir in $(ls -d prisma/migrations/*/ | sort); do
 done
 
 export INTEGRATION_DATABASE_URL="postgresql://postgres@localhost:$PORT/$DB?host=$SOCKET_DIR"
-exec npx tsx --test tests/integration/db.test.ts
+# Run with `set +e` so a test failure doesn't skip the EXIT trap. Propagate
+# the exit code at the end.
+set +e
+npx tsx --test tests/integration/db.test.ts
+exit_code=$?
+set -e
+exit $exit_code

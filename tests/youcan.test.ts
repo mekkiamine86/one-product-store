@@ -1,7 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { verifyYoucanWebhook, YoucanApiError } from '../lib/youcan';
+import {
+  verifyYoucanWebhook,
+  YoucanApiError,
+  youcanFetchWithRetry,
+} from '../lib/youcan';
 import {
   buildAuthorizeUrl,
   createOAuthState,
@@ -268,6 +272,129 @@ test('withAutoRefresh does not retry a second time on a second 401', async () =>
     (err) => err instanceof YoucanApiError && err.status === 401,
   );
   assert.equal(calls, 2);
+});
+
+// --- retry / backoff ------------------------------------------------------
+
+function mockResponse(status: number, body = '', headers: Record<string, string> = {}): Response {
+  return new Response(body, { status, headers });
+}
+
+function scriptedFetch(responses: Array<Response | Error>): {
+  fetch: typeof fetch;
+  callCount: () => number;
+} {
+  let i = 0;
+  return {
+    callCount: () => i,
+    fetch: (async () => {
+      if (i >= responses.length) throw new Error('no more scripted responses');
+      const next = responses[i++];
+      if (next instanceof Error) throw next;
+      return next;
+    }) as unknown as typeof fetch,
+  };
+}
+
+const noSleep = async () => {};
+
+test('youcanFetchWithRetry retries on 503 and returns the eventual 2xx', async () => {
+  const mock = scriptedFetch([
+    mockResponse(503),
+    mockResponse(503),
+    mockResponse(200, '{"ok":true}'),
+  ]);
+  const res = await youcanFetchWithRetry('https://api.youcan.shop/x', {}, {
+    fetchImpl: mock.fetch,
+    sleepImpl: noSleep,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(mock.callCount(), 3);
+});
+
+test('youcanFetchWithRetry does not retry on 401 (leaves it for the refresh wrapper)', async () => {
+  const mock = scriptedFetch([mockResponse(401)]);
+  const res = await youcanFetchWithRetry('https://api.youcan.shop/x', {}, {
+    fetchImpl: mock.fetch,
+    sleepImpl: noSleep,
+  });
+  assert.equal(res.status, 401);
+  assert.equal(mock.callCount(), 1);
+});
+
+test('youcanFetchWithRetry does not retry on 4xx client errors', async () => {
+  for (const status of [400, 403, 404, 409, 422]) {
+    const mock = scriptedFetch([mockResponse(status)]);
+    const res = await youcanFetchWithRetry('https://api.youcan.shop/x', {}, {
+      fetchImpl: mock.fetch,
+      sleepImpl: noSleep,
+    });
+    assert.equal(res.status, status);
+    assert.equal(mock.callCount(), 1);
+  }
+});
+
+test('youcanFetchWithRetry retries network errors and gives up after maxAttempts', async () => {
+  const mock = scriptedFetch([
+    new Error('ECONNRESET'),
+    new Error('ECONNRESET'),
+    new Error('ECONNRESET'),
+    new Error('ECONNRESET'),
+  ]);
+  await assert.rejects(
+    youcanFetchWithRetry('https://api.youcan.shop/x', {}, {
+      maxAttempts: 4,
+      fetchImpl: mock.fetch,
+      sleepImpl: noSleep,
+    }),
+    /ECONNRESET/,
+  );
+  assert.equal(mock.callCount(), 4);
+});
+
+test('youcanFetchWithRetry honours Retry-After in seconds', async () => {
+  const delays: number[] = [];
+  const recordingSleep = async (ms: number) => { delays.push(ms); };
+  const mock = scriptedFetch([
+    mockResponse(429, '', { 'retry-after': '1' }),
+    mockResponse(200, 'ok'),
+  ]);
+  const res = await youcanFetchWithRetry('https://api.youcan.shop/x', {}, {
+    fetchImpl: mock.fetch,
+    sleepImpl: recordingSleep,
+    maxDelayMs: 5000,
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(delays, [1000]);
+});
+
+test('youcanFetchWithRetry caps Retry-After at maxDelayMs', async () => {
+  const delays: number[] = [];
+  const mock = scriptedFetch([
+    mockResponse(429, '', { 'retry-after': '999' }),
+    mockResponse(200, 'ok'),
+  ]);
+  await youcanFetchWithRetry('https://api.youcan.shop/x', {}, {
+    fetchImpl: mock.fetch,
+    sleepImpl: async (ms) => { delays.push(ms); },
+    maxDelayMs: 1000,
+  });
+  assert.deepEqual(delays, [1000]);
+});
+
+test('youcanFetchWithRetry returns the final retryable response after exhausting attempts', async () => {
+  const mock = scriptedFetch([
+    mockResponse(502),
+    mockResponse(502),
+    mockResponse(502),
+  ]);
+  const res = await youcanFetchWithRetry('https://api.youcan.shop/x', {}, {
+    maxAttempts: 3,
+    fetchImpl: mock.fetch,
+    sleepImpl: noSleep,
+  });
+  assert.equal(res.status, 502);
+  assert.equal(mock.callCount(), 3);
 });
 
 test('OAuth state round-trips and detects tampering', () => {
