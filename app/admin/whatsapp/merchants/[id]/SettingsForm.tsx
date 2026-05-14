@@ -110,6 +110,36 @@ export default function SettingsForm({ merchantId, initial, youcanStoreId }: Pro
           onChange={(e) => update('whatsappTemplateSid', e.target.value)}
           className="w-full rounded-lg border border-black/15 px-3 py-2 font-mono text-sm focus:border-black focus:outline-none"
         />
+        <details className="mt-2 text-xs text-black/60">
+          <summary className="cursor-pointer hover:text-black">
+            Template variable mapping
+          </summary>
+          <div className="mt-2 rounded-lg bg-neutral-50 p-3">
+            Your Twilio template must use three positional variables in this
+            order:
+            <ul className="mt-2 space-y-1">
+              <li>
+                <code className="rounded bg-white px-1.5 py-0.5 font-mono">{'{{1}}'}</code>{' '}
+                YouCan order reference (e.g. <em>#1024</em>)
+              </li>
+              <li>
+                <code className="rounded bg-white px-1.5 py-0.5 font-mono">{'{{2}}'}</code>{' '}
+                Customer's first name
+              </li>
+              <li>
+                <code className="rounded bg-white px-1.5 py-0.5 font-mono">{'{{3}}'}</code>{' '}
+                Total amount with currency (e.g. <em>149.99 MAD</em>)
+              </li>
+            </ul>
+            <p className="mt-2">
+              The template must include two quick-reply buttons whose payloads
+              start with <code className="rounded bg-white px-1.5 py-0.5 font-mono">CONFIRM</code>{' '}
+              and <code className="rounded bg-white px-1.5 py-0.5 font-mono">CANCEL</code>{' '}
+              (case-insensitive). Free-text replies are accepted too — see the
+              localised keyword tables in <code className="font-mono">lib/whatsapp.ts</code>.
+            </p>
+          </div>
+        </details>
       </Field>
 
       <Field
