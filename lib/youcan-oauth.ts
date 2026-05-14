@@ -1,5 +1,10 @@
 import crypto from 'node:crypto';
-import { YOUCAN_API_BASE, YOUCAN_SELLER_BASE } from './youcan';
+import {
+  YOUCAN_API_BASE,
+  YOUCAN_SELLER_BASE,
+  YoucanApiError,
+  type YoucanAuth,
+} from './youcan';
 
 // -----------------------------------------------------------------------------
 // YouCan OAuth helpers
@@ -108,6 +113,97 @@ export async function exchangeAccessToken(opts: {
     refreshToken: data.refresh_token ?? null,
     scope: data.scope ?? null,
   };
+}
+
+/**
+ * Mint a fresh access token from a refresh token.
+ *
+ * Standard OAuth 2.0 `refresh_token` grant. YouCan's docs cover the
+ * authorization-code half of /oauth/token in detail; the refresh half is
+ * not separately documented, so the body shape below follows RFC 6749 §6.
+ * If the wire format turns out to differ, this is the single function to
+ * adjust.
+ */
+export async function refreshAccessToken(opts: {
+  refreshToken: string;
+  config?: YoucanAppConfig;
+}): Promise<{ accessToken: string; refreshToken: string | null; scope: string | null }> {
+  const cfg = opts.config ?? getYoucanAppConfig();
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    client_id: cfg.clientId,
+    client_secret: cfg.clientSecret,
+    refresh_token: opts.refreshToken,
+  });
+  const res = await fetch(`${YOUCAN_API_BASE}/oauth/token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json',
+    },
+    body: body.toString(),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`OAuth token refresh failed: ${res.status} ${text}`);
+  }
+  const data = (await res.json()) as {
+    access_token: string;
+    refresh_token?: string;
+    scope?: string;
+  };
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token ?? null,
+    scope: data.scope ?? null,
+  };
+}
+
+/**
+ * Run a YouCan API call with automatic access-token refresh on a single 401.
+ *
+ * Behaviour:
+ *   - First attempt uses the merchant's current access token.
+ *   - If it throws YoucanApiError with status 401 and we have a refresh
+ *     token, swap tokens, persist via `persistTokens`, and retry once.
+ *   - Any other error (or a second 401) propagates.
+ *
+ * `persistTokens` is injected rather than calling Prisma directly so this
+ * helper has no DB dependency and tests can run against an in-memory state.
+ * The route handler supplies the prisma.merchant.update call.
+ *
+ * Token rotation: most OAuth providers issue a new refresh_token on every
+ * refresh; some do not. We keep the previous refresh_token if the response
+ * omits one, so a non-rotating server doesn't strand the merchant.
+ */
+export async function withAutoRefresh<T>(
+  args: {
+    merchant: { youcanAccessToken: string; youcanRefreshToken: string | null };
+    persistTokens: (t: {
+      accessToken: string;
+      refreshToken: string | null;
+    }) => Promise<void>;
+    refresh?: typeof refreshAccessToken;
+  },
+  call: (auth: YoucanAuth) => Promise<T>,
+): Promise<T> {
+  const refresh = args.refresh ?? refreshAccessToken;
+  try {
+    return await call({ accessToken: args.merchant.youcanAccessToken });
+  } catch (err) {
+    if (!(err instanceof YoucanApiError) || err.status !== 401) throw err;
+    if (!args.merchant.youcanRefreshToken) throw err;
+
+    const refreshed = await refresh({
+      refreshToken: args.merchant.youcanRefreshToken,
+    });
+    const nextRefreshToken = refreshed.refreshToken ?? args.merchant.youcanRefreshToken;
+    await args.persistTokens({
+      accessToken: refreshed.accessToken,
+      refreshToken: nextRefreshToken,
+    });
+    return call({ accessToken: refreshed.accessToken });
+  }
 }
 
 /**

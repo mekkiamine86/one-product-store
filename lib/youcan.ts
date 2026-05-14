@@ -51,8 +51,23 @@ export function verifyYoucanWebhook(
 
 // --- API helpers ------------------------------------------------------------
 
-interface YoucanAuth {
+export interface YoucanAuth {
   accessToken: string;
+}
+
+/**
+ * Typed error so callers (specifically the auto-refresh wrapper) can
+ * distinguish a 401 from other failures without parsing strings.
+ */
+export class YoucanApiError extends Error {
+  readonly status: number;
+  readonly body: string;
+  constructor(status: number, message: string, body = '') {
+    super(message);
+    this.name = 'YoucanApiError';
+    this.status = status;
+    this.body = body;
+  }
 }
 
 async function youcanFetch(
@@ -72,8 +87,10 @@ async function youcanFetch(
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(
+    throw new YoucanApiError(
+      res.status,
       `YouCan API ${init.method ?? 'GET'} ${path} failed: ${res.status} ${body}`,
+      body,
     );
   }
   return res;

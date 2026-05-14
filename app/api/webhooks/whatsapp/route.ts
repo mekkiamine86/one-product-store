@@ -17,6 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { updateOrderStatus } from '@/lib/youcan';
+import { withAutoRefresh } from '@/lib/youcan-oauth';
 import {
   classifyReply,
   validateTwilioSignature,
@@ -145,11 +146,24 @@ async function applyIntent(
   order: Order,
   intent: 'CONFIRM' | 'CANCEL',
 ): Promise<void> {
-  const auth = { accessToken: merchant.youcanAccessToken };
   const slug =
     intent === 'CONFIRM' ? merchant.youcanConfirmedSlug : merchant.youcanCancelledSlug;
 
-  await updateOrderStatus(auth, order.youcanOrderId, slug);
+  await withAutoRefresh(
+    {
+      merchant,
+      persistTokens: async (t) => {
+        await prisma.merchant.update({
+          where: { id: merchant.id },
+          data: {
+            youcanAccessToken: t.accessToken,
+            youcanRefreshToken: t.refreshToken,
+          },
+        });
+      },
+    },
+    (auth) => updateOrderStatus(auth, order.youcanOrderId, slug),
+  );
 
   await prisma.order.update({
     where: { id: order.id },
