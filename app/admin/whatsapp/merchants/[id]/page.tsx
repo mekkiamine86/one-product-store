@@ -5,6 +5,7 @@ import { formatDate, formatMoney, orderStatusBadge, storeSlugLabel } from '../..
 import SettingsForm from './SettingsForm';
 import ResubscribeButton from './ResubscribeButton';
 import DeleteMerchantButton from './DeleteMerchantButton';
+import { getMerchantHealth, healthIssueLabel } from '@/lib/merchant-health';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,8 @@ export default async function MerchantDetailPage({
           {merchant._count.orders === 1 ? '' : 's'}
         </div>
       </header>
+
+      <HealthSection merchant={merchant} />
 
       <section className="rounded-2xl border border-black/5 bg-white p-6">
         <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-black/60">
@@ -152,4 +155,46 @@ export default async function MerchantDetailPage({
 
 function Th({ children }: { children: React.ReactNode }) {
   return <th className="px-4 py-3 text-left font-medium">{children}</th>;
+}
+
+function HealthSection({
+  merchant,
+}: {
+  merchant: Parameters<typeof getMerchantHealth>[0];
+}) {
+  const health = getMerchantHealth(merchant);
+  if (health.ok) {
+    return (
+      <section className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-6">
+        <div className="flex items-center gap-3">
+          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+            Ready
+          </span>
+          <span className="text-sm text-emerald-900">
+            This merchant is fully configured and will process inbound order webhooks.
+          </span>
+        </div>
+      </section>
+    );
+  }
+  return (
+    <section className="rounded-2xl border border-amber-200 bg-amber-50/40 p-6">
+      <div className="mb-3 flex items-center gap-3">
+        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
+          {health.issues.length} issue{health.issues.length === 1 ? '' : 's'}
+        </span>
+        <span className="text-sm text-amber-900">
+          Fix these before this merchant can process orders end-to-end.
+        </span>
+      </div>
+      <ul className="space-y-1.5 text-sm text-amber-900">
+        {health.issues.map((issue) => (
+          <li key={issue} className="flex items-start gap-2">
+            <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+            <span>{healthIssueLabel(issue)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }

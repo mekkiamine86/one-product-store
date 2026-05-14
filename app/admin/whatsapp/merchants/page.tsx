@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { formatDate, storeSlugLabel } from '../_lib/format';
+import { getMerchantHealth } from '@/lib/merchant-health';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,7 @@ export default async function MerchantsPage() {
             <tr>
               <Th>YouCan store</Th>
               <Th>Status</Th>
+              <Th>Health</Th>
               <Th>WhatsApp sender</Th>
               <Th>Template</Th>
               <Th>Orders</Th>
@@ -32,7 +34,7 @@ export default async function MerchantsPage() {
           <tbody>
             {merchants.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-black/40">
+                <td colSpan={8} className="px-4 py-10 text-center text-black/40">
                   No merchants yet. Send a merchant to{' '}
                   <code className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs">
                     /api/youcan/install
@@ -41,7 +43,9 @@ export default async function MerchantsPage() {
                 </td>
               </tr>
             )}
-            {merchants.map((m) => (
+            {merchants.map((m) => {
+              const health = getMerchantHealth(m);
+              return (
               <tr key={m.id} className="border-t border-black/5">
                 <td className="px-4 py-3 font-medium">
                   {m.youcanStoreSlug?.trim() ?? (
@@ -56,6 +60,20 @@ export default async function MerchantsPage() {
                   ) : (
                     <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-xs font-medium text-neutral-700">
                       Inactive
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {health.ok ? (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                      Ready
+                    </span>
+                  ) : (
+                    <span
+                      className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+                      title={health.issues.join(', ')}
+                    >
+                      {health.issues.length} issue{health.issues.length === 1 ? '' : 's'}
                     </span>
                   )}
                 </td>
@@ -80,7 +98,8 @@ export default async function MerchantsPage() {
                   </Link>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
