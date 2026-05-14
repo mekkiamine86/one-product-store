@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { formatDate, storeSlugLabel } from '../_lib/format';
 import { getMerchantHealth } from '@/lib/merchant-health';
+import CopyInstallLink from './CopyInstallLink';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,9 +14,35 @@ export default async function MerchantsPage() {
     },
   });
 
+  const publicBase = process.env.PUBLIC_BASE_URL?.replace(/\/$/, '');
+  const installUrl = publicBase
+    ? `${publicBase}/api/youcan/install`
+    : null;
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Merchants</h1>
+
+      <section className="rounded-2xl border border-black/5 bg-neutral-50/60 p-5">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-black/60">
+          Onboard a new merchant
+        </h2>
+        <p className="mt-1 text-sm text-black/60">
+          Share this install link with the merchant. Opening it in their browser
+          takes them through YouCan's consent screen and lands them in this
+          dashboard once webhooks are subscribed.
+        </p>
+        <div className="mt-3">
+          {installUrl ? (
+            <CopyInstallLink url={installUrl} />
+          ) : (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Set <code className="rounded bg-white px-1.5 py-0.5 font-mono">PUBLIC_BASE_URL</code>{' '}
+              in the deployment environment to enable the install link.
+            </div>
+          )}
+        </div>
+      </section>
 
       <div className="overflow-hidden rounded-2xl border border-black/5 bg-white">
         <table className="min-w-full text-sm">
