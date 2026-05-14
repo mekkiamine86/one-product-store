@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { formatDate, formatMoney, orderStatusBadge, storeSlugLabel } from '../../_lib/format';
 import SettingsForm from './SettingsForm';
 import ResubscribeButton from './ResubscribeButton';
+import DeleteMerchantButton from './DeleteMerchantButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -131,6 +132,19 @@ export default async function MerchantDetailPage({
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-red-200 bg-red-50/30 p-6">
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-red-900">
+          Danger zone
+        </h2>
+        <p className="mb-4 text-xs text-red-900/70">
+          Hard-delete this merchant. Cascades to {merchant._count.orders.toLocaleString()}{' '}
+          order{merchant._count.orders === 1 ? '' : 's'} and every WhatsApp log row.
+          The action is irreversible — prefer toggling the active flag if the merchant
+          should just stop receiving traffic.
+        </p>
+        <DeleteMerchantButton merchantId={merchant.id} />
       </section>
     </div>
   );

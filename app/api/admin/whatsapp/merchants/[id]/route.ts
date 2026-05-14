@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isAdminAuthorized } from '@/lib/auth-server';
+import { log } from '@/lib/log';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -148,6 +149,69 @@ export async function PATCH(
     }
     if (message.includes('Unique constraint')) {
       return NextResponse.json({ error: 'email already in use' }, { status: 409 });
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+// =============================================================================
+// DELETE /api/admin/whatsapp/merchants/[id]
+//
+// Hard-deletes a merchant and (via the schema's onDelete: Cascade) every
+// Order and WhatsAppLog row associated with it. Used for operator-driven
+// account closure and GDPR-style data deletion.
+//
+// Confirmation: the request body MUST include `{ confirmId: "<merchant.id>" }`.
+// The button on the dashboard requires the operator to type the merchant id
+// to enable the action; this server-side check is a second line of defence
+// against an authenticated-but-confused operator.
+// =============================================================================
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  if (!(await isAdminAuthorized())) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  let body: { confirmId?: string };
+  try {
+    body = (await req.json()) as { confirmId?: string };
+  } catch {
+    return NextResponse.json({ error: 'invalid JSON' }, { status: 400 });
+  }
+
+  if (body.confirmId !== params.id) {
+    return NextResponse.json(
+      { error: 'confirmId does not match merchant id' },
+      { status: 400 },
+    );
+  }
+
+  try {
+    // Capture counts before deletion so the audit log records the blast radius.
+    const [orderCount, logCount] = await Promise.all([
+      prisma.order.count({ where: { merchantId: params.id } }),
+      prisma.whatsAppLog.count({ where: { merchantId: params.id } }),
+    ]);
+
+    await prisma.merchant.delete({ where: { id: params.id } });
+
+    log('youcan.merchant.deleted', {
+      merchantId: params.id,
+      cascadedOrders: orderCount,
+      cascadedLogs: logCount,
+    });
+
+    return NextResponse.json(
+      { ok: true, cascadedOrders: orderCount, cascadedLogs: logCount },
+      { status: 200 },
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'delete failed';
+    if (message.includes('P2025')) {
+      return NextResponse.json({ error: 'merchant not found' }, { status: 404 });
     }
     return NextResponse.json({ error: message }, { status: 500 });
   }
