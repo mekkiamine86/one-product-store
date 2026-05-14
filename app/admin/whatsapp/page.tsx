@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { OrderStatus } from '@prisma/client';
 import { formatDate, formatMoney, orderStatusBadge, storeSlugLabel } from './_lib/format';
+import { getMerchantHealth } from '@/lib/merchant-health';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,10 +11,19 @@ async function getStats() {
   const dayAgo = new Date(now - 24 * 3600 * 1000);
   const weekAgo = new Date(now - 7 * 24 * 3600 * 1000);
 
-  const [activeMerchants, today, week, pending, recent, byStatus] = await Promise.all([
-    prisma.merchant.count({ where: { isActive: true } }),
+  const [merchantsForHealth, today, pending, recent, byStatus] = await Promise.all([
+    // Pull only the columns getMerchantHealth needs so we don't drag every
+    // merchant row into RAM on a busy install.
+    prisma.merchant.findMany({
+      select: {
+        email: true,
+        isActive: true,
+        youcanAccessToken: true,
+        whatsappFromNumber: true,
+        whatsappTemplateSid: true,
+      },
+    }),
     prisma.order.count({ where: { createdAt: { gte: dayAgo } } }),
-    prisma.order.count({ where: { createdAt: { gte: weekAgo } } }),
     prisma.order.count({ where: { status: OrderStatus.PENDING_CONFIRMATION } }),
     prisma.order.findMany({
       take: 10,
@@ -38,7 +48,22 @@ async function getStats() {
   const decided = counts.CONFIRMED + counts.CANCELLED + counts.EXPIRED;
   const confirmationRate = decided === 0 ? null : (counts.CONFIRMED / decided) * 100;
 
-  return { activeMerchants, today, week, pending, recent, counts, confirmationRate };
+  const activeMerchants = merchantsForHealth.filter((m) => m.isActive).length;
+  const healthyMerchants = merchantsForHealth.filter(
+    (m) => getMerchantHealth(m).ok,
+  ).length;
+  const needsSetup = activeMerchants - healthyMerchants;
+
+  return {
+    activeMerchants,
+    healthyMerchants,
+    needsSetup: needsSetup > 0 ? needsSetup : 0,
+    today,
+    pending,
+    recent,
+    counts,
+    confirmationRate,
+  };
 }
 
 export default async function OverviewPage() {
@@ -48,8 +73,12 @@ export default async function OverviewPage() {
     <div className="space-y-8">
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Active merchants" value={s.activeMerchants} />
+        <Stat
+          label="Need setup"
+          value={s.needsSetup}
+          accent={s.needsSetup > 0 ? 'amber' : undefined}
+        />
         <Stat label="Orders today" value={s.today} />
-        <Stat label="Orders this week" value={s.week} />
         <Stat label="Pending right now" value={s.pending} accent="amber" />
       </section>
 
