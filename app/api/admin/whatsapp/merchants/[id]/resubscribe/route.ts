@@ -18,6 +18,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isAdminAuthorized } from '@/lib/auth-server';
 import { ensureWebhook, getYoucanAppConfig } from '@/lib/youcan-oauth';
+import { log, logError } from '@/lib/log';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,14 +31,26 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   if (!(await isAdminAuthorized())) {
+    logError('admin.merchant.resubscribe_reject', {
+      reason: 'unauthorized',
+      merchantId: params.id,
+    });
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
   const merchant = await prisma.merchant.findUnique({ where: { id: params.id } });
   if (!merchant) {
+    logError('admin.merchant.resubscribe_reject', {
+      reason: 'not-found',
+      merchantId: params.id,
+    });
     return NextResponse.json({ error: 'merchant not found' }, { status: 404 });
   }
   if (!merchant.isActive || !merchant.youcanAccessToken) {
+    logError('admin.merchant.resubscribe_reject', {
+      reason: 'inactive-or-no-token',
+      merchantId: params.id,
+    });
     return NextResponse.json(
       { error: 'merchant is inactive or has no access token' },
       { status: 409 },
@@ -48,6 +61,10 @@ export async function POST(
   try {
     cfg = getYoucanAppConfig();
   } catch (err) {
+    logError('admin.merchant.resubscribe_reject', {
+      reason: 'app-not-configured',
+      merchantId: params.id,
+    });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'app not configured' },
       { status: 500 },
@@ -83,6 +100,11 @@ export async function POST(
   );
 
   const allOk = results.every((r) => r.ok);
+  log('admin.merchant.resubscribed', {
+    merchantId: merchant.id,
+    allOk,
+    events: results.map((r) => r.event).join(','),
+  });
   return NextResponse.json(
     { ok: allOk, results },
     { status: allOk ? 200 : 502 },

@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isAdminAuthorized } from '@/lib/auth-server';
-import { log } from '@/lib/log';
+import { log, logError } from '@/lib/log';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -140,6 +140,10 @@ export async function PATCH(
         isActive: true,
       },
     });
+    log('admin.merchant.updated', {
+      merchantId: params.id,
+      fields: Object.keys(data),
+    });
     return NextResponse.json({ merchant }, { status: 200 });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'update failed';
@@ -172,6 +176,10 @@ export async function DELETE(
   { params }: { params: { id: string } },
 ) {
   if (!(await isAdminAuthorized())) {
+    logError('admin.merchant.delete_reject', {
+      reason: 'unauthorized',
+      merchantId: params.id,
+    });
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -179,10 +187,18 @@ export async function DELETE(
   try {
     body = (await req.json()) as { confirmId?: string };
   } catch {
+    logError('admin.merchant.delete_reject', {
+      reason: 'invalid-json',
+      merchantId: params.id,
+    });
     return NextResponse.json({ error: 'invalid JSON' }, { status: 400 });
   }
 
   if (body.confirmId !== params.id) {
+    logError('admin.merchant.delete_reject', {
+      reason: 'confirmid-mismatch',
+      merchantId: params.id,
+    });
     return NextResponse.json(
       { error: 'confirmId does not match merchant id' },
       { status: 400 },
@@ -198,7 +214,7 @@ export async function DELETE(
 
     await prisma.merchant.delete({ where: { id: params.id } });
 
-    log('youcan.merchant.deleted', {
+    log('admin.merchant.deleted', {
       merchantId: params.id,
       cascadedOrders: orderCount,
       cascadedLogs: logCount,
