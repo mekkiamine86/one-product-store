@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "tsx --test tests/youcan.test.ts tests/whatsapp.test.ts tests/order-create-extract.test.ts tests/whatsapp-inbound.test.ts tests/log.test.ts",
+    "test:integration": "bash scripts/test-integration.sh",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
