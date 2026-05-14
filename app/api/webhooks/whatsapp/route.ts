@@ -18,12 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { updateOrderStatus } from '@/lib/youcan';
 import { withAutoRefresh } from '@/lib/youcan-oauth';
-import {
-  classifyReply,
-  validateTwilioSignature,
-  type ReplyIntent,
-} from '@/lib/whatsapp';
-import { fromWhatsAppAddress } from '@/lib/phone';
+import { validateTwilioSignature } from '@/lib/whatsapp';
 import { log, logError } from '@/lib/log';
 import {
   OrderStatus,
@@ -32,6 +27,12 @@ import {
   type Merchant,
   type Order,
 } from '@prisma/client';
+import {
+  buildTwilioCallbackUrl,
+  extractInboundFields,
+  resolveIntent,
+  resolveStatusSlug,
+} from './inbound';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -58,22 +59,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'twilio auth not configured' }, { status: 500 });
   }
 
-  const publicBase = process.env.PUBLIC_BASE_URL?.replace(/\/$/, '');
-  const fullUrl = publicBase
-    ? `${publicBase}${new URL(req.url).pathname}`
-    : req.url;
+  const fullUrl = buildTwilioCallbackUrl(req.url, process.env.PUBLIC_BASE_URL);
 
   if (!validateTwilioSignature(fullUrl, formParams, signature, authToken)) {
     logError('whatsapp.inbound.reject', { reason: 'invalid-twilio-signature' });
     return NextResponse.json({ error: 'invalid signature' }, { status: 401 });
   }
 
-  const fromAddr = formParams['From'] ?? '';
-  const toAddr = formParams['To'] ?? '';
-  const body = formParams['Body'] ?? '';
-  const buttonPayload = formParams['ButtonPayload'] ?? null;
-  const customerE164 = fromWhatsApp(fromAddr);
-  const merchantWhatsApp = fromWhatsApp(toAddr);
+  const fields = extractInboundFields(formParams);
+  const { customerE164, merchantWhatsApp, body, buttonPayload, messageSid } = fields;
 
   if (!customerE164 || !merchantWhatsApp) {
     logError('whatsapp.inbound.reject', { reason: 'unparseable-address' });
@@ -105,7 +99,7 @@ export async function POST(req: NextRequest) {
       merchantId: merchant.id,
       orderId: order?.id ?? null,
       direction: WhatsAppDirection.INBOUND,
-      providerMessageId: formParams['MessageSid'] ?? null,
+      providerMessageId: messageSid,
       fromNumber: customerE164,
       toNumber: merchantWhatsApp,
       body,
@@ -120,8 +114,7 @@ export async function POST(req: NextRequest) {
     return twimlResponse();
   }
 
-  const intent: ReplyIntent =
-    buttonPayload ? classifyReply(buttonPayload) : classifyReply(body);
+  const intent = resolveIntent(buttonPayload, body);
 
   if (intent === 'UNKNOWN') {
     log('whatsapp.inbound.unknown_intent', {
@@ -163,19 +156,12 @@ export async function POST(req: NextRequest) {
   return twimlResponse();
 }
 
-function fromWhatsApp(addr: string | undefined): string | null {
-  if (!addr) return null;
-  const v = fromWhatsAppAddress(addr).trim();
-  return v.length > 0 ? v : null;
-}
-
 async function applyIntent(
   merchant: Merchant,
   order: Order,
   intent: 'CONFIRM' | 'CANCEL',
 ): Promise<void> {
-  const slug =
-    intent === 'CONFIRM' ? merchant.youcanConfirmedSlug : merchant.youcanCancelledSlug;
+  const slug = resolveStatusSlug(merchant, intent);
 
   await withAutoRefresh(
     {
