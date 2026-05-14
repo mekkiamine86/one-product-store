@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyYoucanWebhook, YOUCAN_SIGNATURE_HEADER } from '@/lib/youcan';
 import { sendOrderConfirmation } from '@/lib/send-confirmation';
+import { log, logError } from '@/lib/log';
 import { OrderStatus } from '@prisma/client';
 import { extractOrderFields, type YoucanOrderPayload } from './extract';
 
@@ -29,6 +30,7 @@ export async function POST(req: NextRequest) {
 
   const signatureHeader = req.headers.get(YOUCAN_SIGNATURE_HEADER);
   if (!signatureHeader) {
+    logError('youcan.order_create.reject', { reason: 'missing-signature' });
     return NextResponse.json(
       { error: 'missing signature header' },
       { status: 400 },
@@ -37,6 +39,7 @@ export async function POST(req: NextRequest) {
 
   const merchantId = req.nextUrl.searchParams.get('m');
   if (!merchantId) {
+    logError('youcan.order_create.reject', { reason: 'missing-merchant-id' });
     return NextResponse.json(
       { error: 'missing merchant identifier' },
       { status: 400 },
@@ -45,10 +48,18 @@ export async function POST(req: NextRequest) {
 
   const merchant = await prisma.merchant.findUnique({ where: { id: merchantId } });
   if (!merchant || !merchant.isActive) {
+    logError('youcan.order_create.reject', {
+      reason: 'unknown-or-inactive-merchant',
+      merchantId,
+    });
     return NextResponse.json({ error: 'unknown merchant' }, { status: 401 });
   }
 
   if (!verifyYoucanWebhook(rawBody, signatureHeader, merchant.youcanWebhookSecret)) {
+    logError('youcan.order_create.reject', {
+      reason: 'invalid-signature',
+      merchantId: merchant.id,
+    });
     return NextResponse.json({ error: 'invalid signature' }, { status: 401 });
   }
 
@@ -56,6 +67,10 @@ export async function POST(req: NextRequest) {
   try {
     payload = JSON.parse(rawBody);
   } catch {
+    logError('youcan.order_create.reject', {
+      reason: 'invalid-json',
+      merchantId: merchant.id,
+    });
     return NextResponse.json({ error: 'invalid JSON' }, { status: 400 });
   }
 
@@ -95,6 +110,13 @@ export async function POST(req: NextRequest) {
   });
 
   const outcome = await sendOrderConfirmation(merchant, order);
+  log('youcan.order_create.handled', {
+    merchantId: merchant.id,
+    orderId: order.id,
+    youcanOrderId: String(payload.id),
+    sendOk: outcome.ok,
+    sendReason: outcome.ok ? undefined : outcome.reason,
+  });
   return NextResponse.json(
     { ok: true, orderId: order.id, send: outcome },
     { status: 200 },

@@ -5,6 +5,7 @@ import {
   YoucanApiError,
   type YoucanAuth,
 } from './youcan';
+import { log } from './log';
 
 // -----------------------------------------------------------------------------
 // YouCan OAuth helpers
@@ -194,6 +195,7 @@ export async function withAutoRefresh<T>(
     if (!(err instanceof YoucanApiError) || err.status !== 401) throw err;
     if (!args.merchant.youcanRefreshToken) throw err;
 
+    log('youcan.token.refresh_attempt');
     const refreshed = await refresh({
       refreshToken: args.merchant.youcanRefreshToken,
     });
@@ -202,6 +204,7 @@ export async function withAutoRefresh<T>(
       accessToken: refreshed.accessToken,
       refreshToken: nextRefreshToken,
     });
+    log('youcan.token.refreshed', { rotated: !!refreshed.refreshToken });
     return call({ accessToken: refreshed.accessToken });
   }
 }

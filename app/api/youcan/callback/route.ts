@@ -21,6 +21,7 @@ import {
   getYoucanAppConfig,
   verifyOAuthState,
 } from '@/lib/youcan-oauth';
+import { log, logError } from '@/lib/log';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,6 +33,7 @@ export async function GET(req: NextRequest) {
   const state = req.nextUrl.searchParams.get('state');
 
   if (!code) {
+    logError('youcan.oauth.reject', { reason: 'missing-code' });
     return NextResponse.json({ error: 'missing code' }, { status: 400 });
   }
 
@@ -44,11 +46,13 @@ export async function GET(req: NextRequest) {
     }
   })();
   if (!stateSecret || !cfg) {
+    logError('youcan.oauth.reject', { reason: 'app-not-configured' });
     return NextResponse.json({ error: 'app not configured' }, { status: 500 });
   }
 
   const cookieValue = req.cookies.get(STATE_COOKIE)?.value ?? null;
   if (!verifyOAuthState(state, cookieValue, stateSecret)) {
+    logError('youcan.oauth.reject', { reason: 'invalid-state' });
     return NextResponse.json({ error: 'invalid state' }, { status: 401 });
   }
 
@@ -56,6 +60,7 @@ export async function GET(req: NextRequest) {
     code,
     config: cfg,
   });
+  log('youcan.oauth.token_exchanged', { hasRefreshToken: !!refreshToken });
 
   // The REST Hook signing key is the app-level client secret (per docs);
   // we copy it onto the merchant for symmetry with the rest of the codebase
@@ -93,6 +98,7 @@ export async function GET(req: NextRequest) {
       targetUrl: target('/api/webhooks/youcan/app-uninstalled'),
     }),
   ]);
+  log('youcan.oauth.installed', { merchantId: merchant.id });
 
   const dest = new URL(`/admin/whatsapp/merchants/${merchant.id}`, cfg.appUrl);
   const res = NextResponse.redirect(dest, 302);

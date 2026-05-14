@@ -24,6 +24,7 @@ import {
   type ReplyIntent,
 } from '@/lib/whatsapp';
 import { fromWhatsAppAddress } from '@/lib/phone';
+import { log, logError } from '@/lib/log';
 import {
   OrderStatus,
   WhatsAppDirection,
@@ -63,6 +64,7 @@ export async function POST(req: NextRequest) {
     : req.url;
 
   if (!validateTwilioSignature(fullUrl, formParams, signature, authToken)) {
+    logError('whatsapp.inbound.reject', { reason: 'invalid-twilio-signature' });
     return NextResponse.json({ error: 'invalid signature' }, { status: 401 });
   }
 
@@ -74,6 +76,7 @@ export async function POST(req: NextRequest) {
   const merchantWhatsApp = fromWhatsApp(toAddr);
 
   if (!customerE164 || !merchantWhatsApp) {
+    logError('whatsapp.inbound.reject', { reason: 'unparseable-address' });
     return twimlResponse();
   }
 
@@ -81,6 +84,10 @@ export async function POST(req: NextRequest) {
     where: { whatsappFromNumber: merchantWhatsApp, isActive: true },
   });
   if (!merchant) {
+    logError('whatsapp.inbound.reject', {
+      reason: 'no-merchant-for-sender',
+      toNumber: merchantWhatsApp,
+    });
     return twimlResponse();
   }
 
@@ -108,17 +115,38 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  if (!order) return twimlResponse();
+  if (!order) {
+    log('whatsapp.inbound.no_pending_order', { merchantId: merchant.id });
+    return twimlResponse();
+  }
 
   const intent: ReplyIntent =
     buttonPayload ? classifyReply(buttonPayload) : classifyReply(body);
 
-  if (intent === 'UNKNOWN') return twimlResponse();
+  if (intent === 'UNKNOWN') {
+    log('whatsapp.inbound.unknown_intent', {
+      merchantId: merchant.id,
+      orderId: order.id,
+      viaButton: !!buttonPayload,
+    });
+    return twimlResponse();
+  }
 
   try {
     await applyIntent(merchant, order, intent);
+    log('whatsapp.inbound.applied', {
+      merchantId: merchant.id,
+      orderId: order.id,
+      intent,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    logError('whatsapp.inbound.sync_failed', {
+      merchantId: merchant.id,
+      orderId: order.id,
+      intent,
+      message: message.slice(0, 200),
+    });
     await prisma.whatsAppLog.create({
       data: {
         merchantId: merchant.id,
