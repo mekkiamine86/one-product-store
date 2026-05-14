@@ -18,6 +18,8 @@ interface PatchBody {
   whatsappFromNumber?: string;
   whatsappTemplateSid?: string;
   defaultCountryCode?: string;
+  youcanConfirmedSlug?: string;
+  youcanCancelledSlug?: string;
   isActive?: boolean;
 }
 
@@ -25,6 +27,9 @@ const E164 = /^\+\d{8,15}$/;
 const COUNTRY = /^[A-Z]{2}$/;
 const TEMPLATE_SID = /^HX[a-zA-Z0-9]{32}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// YouCan slugs from the seller dashboard: lowercase ASCII, digits, dashes,
+// underscores. Permissive on length; rejects spaces and accented characters.
+const STATUS_SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 export async function PATCH(
   req: NextRequest,
@@ -82,6 +87,26 @@ export async function PATCH(
     }
     data.defaultCountryCode = v;
   }
+  if (body.youcanConfirmedSlug !== undefined) {
+    const v = body.youcanConfirmedSlug.trim().toLowerCase();
+    if (!STATUS_SLUG.test(v)) {
+      return NextResponse.json(
+        { error: 'youcanConfirmedSlug must be lowercase letters, digits, "-" or "_"' },
+        { status: 400 },
+      );
+    }
+    data.youcanConfirmedSlug = v;
+  }
+  if (body.youcanCancelledSlug !== undefined) {
+    const v = body.youcanCancelledSlug.trim().toLowerCase();
+    if (!STATUS_SLUG.test(v)) {
+      return NextResponse.json(
+        { error: 'youcanCancelledSlug must be lowercase letters, digits, "-" or "_"' },
+        { status: 400 },
+      );
+    }
+    data.youcanCancelledSlug = v;
+  }
   if (body.isActive !== undefined) {
     data.isActive = !!body.isActive;
   }
@@ -97,6 +122,8 @@ export async function PATCH(
         whatsappFromNumber: true,
         whatsappTemplateSid: true,
         defaultCountryCode: true,
+        youcanConfirmedSlug: true,
+        youcanCancelledSlug: true,
         isActive: true,
       },
     });

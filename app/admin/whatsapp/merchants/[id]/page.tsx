@@ -56,6 +56,8 @@ export default async function MerchantDetailPage({
             whatsappFromNumber: merchant.whatsappFromNumber,
             whatsappTemplateSid: merchant.whatsappTemplateSid ?? '',
             defaultCountryCode: merchant.defaultCountryCode,
+            youcanConfirmedSlug: merchant.youcanConfirmedSlug,
+            youcanCancelledSlug: merchant.youcanCancelledSlug,
             isActive: merchant.isActive,
           }}
         />

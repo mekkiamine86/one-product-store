@@ -140,20 +140,14 @@ function fromWhatsApp(addr: string | undefined): string | null {
   return v.length > 0 ? v : null;
 }
 
-// Default status slugs that ship with new YouCan stores. Merchants can rename
-// these in the seller dashboard, so anyone running this in production with
-// renamed slugs needs to override them per-merchant (e.g. via a settings
-// column on Merchant — left as a follow-up).
-const DEFAULT_CONFIRMED_SLUG = 'confirmed';
-const DEFAULT_CANCELLED_SLUG = 'cancelled';
-
 async function applyIntent(
   merchant: Merchant,
   order: Order,
   intent: 'CONFIRM' | 'CANCEL',
 ): Promise<void> {
   const auth = { accessToken: merchant.youcanAccessToken };
-  const slug = intent === 'CONFIRM' ? DEFAULT_CONFIRMED_SLUG : DEFAULT_CANCELLED_SLUG;
+  const slug =
+    intent === 'CONFIRM' ? merchant.youcanConfirmedSlug : merchant.youcanCancelledSlug;
 
   await updateOrderStatus(auth, order.youcanOrderId, slug);
 

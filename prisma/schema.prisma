@@ -63,6 +63,13 @@ model Merchant {
   defaultCountryCode  String   @default("MA") // ISO-3166-1 alpha-2 used when
                                                 // normalising local phone
                                                 // numbers from YouCan orders.
+
+  // YouCan custom-status slugs. New stores ship with `confirmed` / `cancelled`
+  // in the general `orders` status context, but merchants can rename them in
+  // the seller dashboard — so each merchant carries their own mapping.
+  youcanConfirmedSlug String   @default("confirmed")
+  youcanCancelledSlug String   @default("cancelled")
+
   isActive            Boolean  @default(true)
 
   createdAt           DateTime @default(now())

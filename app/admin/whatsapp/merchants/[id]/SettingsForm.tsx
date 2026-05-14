@@ -11,6 +11,8 @@ interface Props {
     whatsappFromNumber: string;
     whatsappTemplateSid: string;
     defaultCountryCode: string;
+    youcanConfirmedSlug: string;
+    youcanCancelledSlug: string;
     isActive: boolean;
   };
 }
@@ -101,6 +103,30 @@ export default function SettingsForm({ merchantId, initial }: Props) {
           value={form.defaultCountryCode}
           onChange={(e) => update('defaultCountryCode', e.target.value.toUpperCase())}
           className="w-20 rounded-lg border border-black/15 px-3 py-2 text-center font-mono text-sm uppercase focus:border-black focus:outline-none"
+        />
+      </Field>
+
+      <Field
+        label="Confirmed status slug"
+        hint='YouCan custom-status slug to set when the customer confirms. Default "confirmed".'
+      >
+        <input
+          type="text"
+          value={form.youcanConfirmedSlug}
+          onChange={(e) => update('youcanConfirmedSlug', e.target.value.toLowerCase())}
+          className="w-full rounded-lg border border-black/15 px-3 py-2 font-mono text-sm lowercase focus:border-black focus:outline-none"
+        />
+      </Field>
+
+      <Field
+        label="Cancelled status slug"
+        hint='YouCan custom-status slug to set when the customer cancels. Default "cancelled".'
+      >
+        <input
+          type="text"
+          value={form.youcanCancelledSlug}
+          onChange={(e) => update('youcanCancelledSlug', e.target.value.toLowerCase())}
+          className="w-full rounded-lg border border-black/15 px-3 py-2 font-mono text-sm lowercase focus:border-black focus:outline-none"
         />
       </Field>
 
