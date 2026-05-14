@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { formatDate, formatMoney, orderStatusBadge, storeSlugLabel } from '../../_lib/format';
 import SettingsForm from './SettingsForm';
+import ResubscribeButton from './ResubscribeButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,6 +68,19 @@ export default async function MerchantDetailPage({
           }}
           youcanStoreId={merchant.youcanStoreId}
         />
+      </section>
+
+      <section className="rounded-2xl border border-black/5 bg-white p-6">
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-black/60">
+          YouCan webhooks
+        </h2>
+        <p className="mb-4 text-xs text-black/60">
+          Re-registers the <code className="rounded bg-neutral-100 px-1.5 py-0.5">order.create</code>{' '}
+          and <code className="rounded bg-neutral-100 px-1.5 py-0.5">app.uninstalled</code> REST
+          Hook subscriptions with YouCan, using this merchant's current access token. Safe to fire
+          repeatedly — duplicates are ignored.
+        </p>
+        <ResubscribeButton merchantId={merchant.id} />
       </section>
 
       <section>
