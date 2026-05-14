@@ -1,24 +1,22 @@
 // =============================================================================
-// POST /api/webhooks/youcan/order-create
+// POST /api/webhooks/youcan/order-create?m=<merchantId>
 //
-// Registered with YouCan as the destination for the `order.create` event.
+// Registered with YouCan's REST Hooks as the destination for `order.create`.
 // Workflow:
-//   1. Read the *raw* body (HMAC is computed on the bytes YouCan signed).
-//   2. Identify the merchant by the store slug in the payload.
-//   3. Verify the HMAC against the merchant's webhook secret.
-//   4. Upsert an Order row (idempotent — YouCan may retry).
-//   5. Delegate the WhatsApp send to lib/send-confirmation.
-//   6. Always return 2xx so YouCan doesn't retry on application-level errors.
-//
-// VERIFY against developers.youcan.shop:
-//   - signature header name (assumed `X-Youcan-Hmac-Sha256`)
-//   - store identification (header vs. payload field; we read both)
-//   - payload field names (id / ref / customer / line items / totals)
+//   1. Read the *raw* body — the signature is HMAC of the bytes YouCan sent.
+//   2. Identify the merchant via the `m` query param (encoded in target_url
+//      at install time). YouCan's payload doesn't document a routing key.
+//   3. Verify x-youcan-signature against the merchant's webhook secret
+//      (which is the app-level OAuth client secret).
+//   4. Upsert an Order row (idempotent — YouCan retries on 4xx/5xx, up to
+//      3 times with ~1s delay between attempts).
+//   5. Fire the WhatsApp confirmation.
+//   6. Always return 2xx so we don't get retried on application-level errors.
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { verifyYoucanWebhook } from '@/lib/youcan';
+import { verifyYoucanWebhook, YOUCAN_SIGNATURE_HEADER } from '@/lib/youcan';
 import { normalizePhone } from '@/lib/phone';
 import { sendOrderConfirmation } from '@/lib/send-confirmation';
 import { OrderStatus } from '@prisma/client';
@@ -26,6 +24,10 @@ import { OrderStatus } from '@prisma/client';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// The exact field names below match the order.create payload as summarised
+// in the resthooks docs (order id, ref, total, currency, status, payment
+// status, customer, variants, payment info, shipping info). Field names are
+// best-effort against what we've been able to read; tweak as the docs evolve.
 interface YoucanCustomer {
   first_name?: string;
   last_name?: string;
@@ -34,67 +36,63 @@ interface YoucanCustomer {
   email?: string | null;
 }
 
-interface YoucanLineItem {
-  title?: string;
-  product_name?: string;
+interface YoucanVariant {
   quantity: number;
+  product?: { name?: string };
+  product_name?: string;
 }
 
 interface YoucanOrderPayload {
   id: number | string;
-  ref?: string;                         // human-readable, e.g. "#1024"
+  ref?: string;
   order_number?: string | number;
   currency: string;
   total?: number | string;
   total_price?: number | string;
   customer?: YoucanCustomer | null;
   shipping_phone?: string | null;
-  store?: { slug?: string; domain?: string };
-  line_items?: YoucanLineItem[];
+  shipping?: { phone?: string | null };
+  variants?: YoucanVariant[];
 }
-
-const HMAC_HEADER = 'x-youcan-hmac-sha256';    // VERIFY
-const SLUG_HEADER = 'x-youcan-store';          // VERIFY (fallback to payload)
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
 
-  const hmacHeader = req.headers.get(HMAC_HEADER);
-  if (!hmacHeader) {
-    return NextResponse.json({ error: 'missing signature header' }, { status: 400 });
+  const signatureHeader = req.headers.get(YOUCAN_SIGNATURE_HEADER);
+  if (!signatureHeader) {
+    return NextResponse.json(
+      { error: 'missing signature header' },
+      { status: 400 },
+    );
   }
 
-  // Identify the merchant. Prefer a header if YouCan sends one; fall back
-  // to a `store` block in the payload.
+  const merchantId = req.nextUrl.searchParams.get('m');
+  if (!merchantId) {
+    return NextResponse.json(
+      { error: 'missing merchant identifier' },
+      { status: 400 },
+    );
+  }
+
+  const merchant = await prisma.merchant.findUnique({ where: { id: merchantId } });
+  if (!merchant || !merchant.isActive) {
+    return NextResponse.json({ error: 'unknown merchant' }, { status: 401 });
+  }
+
+  if (!verifyYoucanWebhook(rawBody, signatureHeader, merchant.youcanWebhookSecret)) {
+    return NextResponse.json({ error: 'invalid signature' }, { status: 401 });
+  }
+
   let payload: YoucanOrderPayload;
   try {
     payload = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ error: 'invalid JSON' }, { status: 400 });
   }
-  const storeSlug =
-    req.headers.get(SLUG_HEADER) ??
-    payload.store?.slug ??
-    payload.store?.domain ??
-    null;
-  if (!storeSlug) {
-    return NextResponse.json({ error: 'cannot identify store' }, { status: 400 });
-  }
 
-  const merchant = await prisma.merchant.findUnique({
-    where: { youcanStoreSlug: storeSlug },
-  });
-  if (!merchant || !merchant.isActive) {
-    return NextResponse.json({ error: 'unknown store' }, { status: 401 });
-  }
-
-  if (!verifyYoucanWebhook(rawBody, hmacHeader, merchant.youcanWebhookSecret)) {
-    return NextResponse.json({ error: 'invalid signature' }, { status: 401 });
-  }
-
-  // Extract the bits we care about.
   const rawPhone =
     payload.customer?.phone ??
+    payload.shipping?.phone ??
     payload.shipping_phone ??
     null;
   const phoneE164 = normalizePhone(rawPhone, merchant.defaultCountryCode);
@@ -113,8 +111,8 @@ export async function POST(req: NextRequest) {
 
   const total = payload.total ?? payload.total_price ?? '0';
   const lineItemsSummary =
-    payload.line_items
-      ?.map((li) => `${li.quantity}x ${li.title ?? li.product_name ?? 'item'}`)
+    payload.variants
+      ?.map((v) => `${v.quantity}x ${v.product?.name ?? v.product_name ?? 'item'}`)
       .join(', ')
       .slice(0, 500) ?? null;
 
@@ -144,5 +142,8 @@ export async function POST(req: NextRequest) {
   });
 
   const outcome = await sendOrderConfirmation(merchant, order);
-  return NextResponse.json({ ok: true, orderId: order.id, send: outcome }, { status: 200 });
+  return NextResponse.json(
+    { ok: true, orderId: order.id, send: outcome },
+    { status: 200 },
+  );
 }

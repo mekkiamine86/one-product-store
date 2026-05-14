@@ -16,7 +16,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { appendOrderNote, updateOrderStatus } from '@/lib/youcan';
+import { updateOrderStatus } from '@/lib/youcan';
 import {
   classifyReply,
   validateTwilioSignature,
@@ -140,37 +140,27 @@ function fromWhatsApp(addr: string | undefined): string | null {
   return v.length > 0 ? v : null;
 }
 
+// Default status slugs that ship with new YouCan stores. Merchants can rename
+// these in the seller dashboard, so anyone running this in production with
+// renamed slugs needs to override them per-merchant (e.g. via a settings
+// column on Merchant — left as a follow-up).
+const DEFAULT_CONFIRMED_SLUG = 'confirmed';
+const DEFAULT_CANCELLED_SLUG = 'cancelled';
+
 async function applyIntent(
   merchant: Merchant,
   order: Order,
   intent: 'CONFIRM' | 'CANCEL',
 ): Promise<void> {
   const auth = { accessToken: merchant.youcanAccessToken };
+  const slug = intent === 'CONFIRM' ? DEFAULT_CONFIRMED_SLUG : DEFAULT_CANCELLED_SLUG;
 
-  if (intent === 'CONFIRM') {
-    await updateOrderStatus(auth, order.youcanOrderId, 'confirmed');
-    await appendOrderNote(
-      auth,
-      order.youcanOrderId,
-      `COD order confirmed by customer via WhatsApp on ${new Date().toISOString()}`,
-    );
-    await prisma.order.update({
-      where: { id: order.id },
-      data: {
-        status: OrderStatus.CONFIRMED,
-        respondedAt: new Date(),
-        youcanUpdatedAt: new Date(),
-      },
-    });
-    return;
-  }
+  await updateOrderStatus(auth, order.youcanOrderId, slug);
 
-  // CANCEL
-  await updateOrderStatus(auth, order.youcanOrderId, 'cancelled');
   await prisma.order.update({
     where: { id: order.id },
     data: {
-      status: OrderStatus.CANCELLED,
+      status: intent === 'CONFIRM' ? OrderStatus.CONFIRMED : OrderStatus.CANCELLED,
       respondedAt: new Date(),
       youcanUpdatedAt: new Date(),
     },

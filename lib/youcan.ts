@@ -5,41 +5,46 @@ import crypto from 'node:crypto';
 // -----------------------------------------------------------------------------
 // Seller dashboard:  https://seller-area.youcan.shop
 // Public API base:   https://api.youcan.shop
-// Developer docs:    https://developers.youcan.shop
+// Developer docs:    https://developer.youcan.shop   (note: singular "developer")
 //
-// VERIFY against the current docs before deploying:
-//   - exact webhook signature header name (assumed: X-Youcan-Hmac-Sha256)
-//   - exact OAuth authorise / token paths
-//   - the order PATCH payload shape (status field name, allowed values)
-//   - the order-update note field name
+// Everything here is sourced from the docs (REST Hooks listing & subscribe,
+// orders/update_status, orders/close, OAuth introduction).
 // =============================================================================
 
 export const YOUCAN_API_BASE = 'https://api.youcan.shop';
 export const YOUCAN_SELLER_BASE = 'https://seller-area.youcan.shop';
 
+/** Header carrying the per-event signature on incoming REST Hook deliveries. */
+export const YOUCAN_SIGNATURE_HEADER = 'x-youcan-signature';
+
 /**
- * Verify a YouCan webhook HMAC.
+ * Verify a YouCan REST Hook signature.
  *
- * YouCan signs the raw request body with the shared webhook secret using
- * HMAC-SHA256 and sends the base64 digest in the webhook signature header.
+ * Per docs/store-admin/resthooks/listing:
+ *   - algorithm:    HMAC-SHA256
+ *   - signing key:  the app's OAuth client secret (app-level, not per webhook)
+ *   - message:      the JSON-encoded payload
+ *   - digest:       hex (PHP `hash_hmac(..., $raw_output = false)` default)
+ *   - header:       x-youcan-signature
  *
- * IMPORTANT: pass the *raw* request body — JSON.stringify(JSON.parse(body))
- * will not round-trip byte-for-byte and the signature will fail.
+ * IMPORTANT: pass the *raw* request body. YouCan signs the bytes their server
+ * emitted; re-encoding (JSON.stringify(JSON.parse(body))) won't match because
+ * PHP's json_encode escapes `/` as `\/` and Node's JSON.stringify doesn't.
  */
 export function verifyYoucanWebhook(
   rawBody: string | Buffer,
-  hmacHeader: string | null | undefined,
-  secret: string,
+  signatureHeader: string | null | undefined,
+  clientSecret: string,
 ): boolean {
-  if (!hmacHeader || !secret) return false;
+  if (!signatureHeader || !clientSecret) return false;
 
-  const digest = crypto
-    .createHmac('sha256', secret)
+  const expected = crypto
+    .createHmac('sha256', clientSecret)
     .update(rawBody)
-    .digest('base64');
+    .digest('hex');
 
-  const a = Buffer.from(digest);
-  const b = Buffer.from(hmacHeader);
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signatureHeader);
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
 }
@@ -47,7 +52,7 @@ export function verifyYoucanWebhook(
 // --- API helpers ------------------------------------------------------------
 
 interface YoucanAuth {
-  accessToken: string; // OAuth access token
+  accessToken: string;
 }
 
 async function youcanFetch(
@@ -74,38 +79,45 @@ async function youcanFetch(
   return res;
 }
 
-/** YouCan-native order states our pipeline transitions to. VERIFY the
- *  exact string values against the YouCan order model. */
-export type YoucanOrderStatus = 'confirmed' | 'cancelled';
-
 /**
- * Update the order status in YouCan. On COD, "confirmed" tells the
- * fulfilment pipeline the customer is good for the call; "cancelled"
- * removes it.
+ * Update an order's status using the configurable per-store statuses.
  *
- * VERIFY: this assumes a PATCH-with-`status` API shape. If YouCan exposes
- * dedicated `/orders/{id}/confirm` and `/orders/{id}/cancel` endpoints,
- * switch to those.
+ * Endpoint (docs/store-admin/orders/update_status):
+ *   PUT https://api.youcan.shop/orders/{id}/status/{context}
+ *   body: { status: "<slug>" }
+ *
+ * `context` selects which status axis to touch — "orders" (the general status,
+ * what we use for confirm/cancel on a COD pipeline), "shipping_status", or
+ * "payment_status".
+ *
+ * `slug` comes from the store's custom-statuses list. Newly-provisioned
+ * stores typically ship with "confirmed" and "cancelled" slugs, but merchants
+ * can rename them, so treat the values as opaque strings and let operators
+ * override per-merchant if needed.
  */
 export async function updateOrderStatus(
   auth: YoucanAuth,
   orderId: string | number,
-  status: YoucanOrderStatus,
+  slug: string,
+  context: 'orders' | 'shipping_status' | 'payment_status' = 'orders',
 ): Promise<void> {
-  await youcanFetch(auth, `/orders/${orderId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status }),
+  await youcanFetch(auth, `/orders/${orderId}/status/${context}`, {
+    method: 'PUT',
+    body: JSON.stringify({ status: slug }),
   });
 }
 
-/** Append a private note to the order timeline. VERIFY the field name. */
-export async function appendOrderNote(
+/**
+ * Close an order. Distinct from cancelling: closing finalises an order in any
+ * terminal state (delivered, refunded, cancelled) so it stops appearing in
+ * the seller's active queue.
+ *
+ * Endpoint (docs/store-admin/orders/close):
+ *   PUT https://api.youcan.shop/orders/{id}/close
+ */
+export async function closeOrder(
   auth: YoucanAuth,
   orderId: string | number,
-  note: string,
 ): Promise<void> {
-  await youcanFetch(auth, `/orders/${orderId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ note }),
-  });
+  await youcanFetch(auth, `/orders/${orderId}/close`, { method: 'PUT' });
 }
