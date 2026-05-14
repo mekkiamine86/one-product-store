@@ -1,11 +1,16 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { ADMIN_COOKIE, verifySessionToken } from '@/lib/auth';
 
-// Protect /admin/dashboard routes — redirect to /admin (login) if not authenticated.
+// Protect /admin/dashboard and /admin/whatsapp routes — redirect to /admin
+// (login) if not authenticated.
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  if (pathname.startsWith('/admin/dashboard')) {
+  const guarded =
+    pathname.startsWith('/admin/dashboard') ||
+    pathname.startsWith('/admin/whatsapp');
+
+  if (guarded) {
     const token = req.cookies.get(ADMIN_COOKIE)?.value;
     const ok = await verifySessionToken(token);
     if (!ok) {
@@ -20,5 +25,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/dashboard/:path*'],
+  matcher: ['/admin/dashboard/:path*', '/admin/whatsapp/:path*'],
 };

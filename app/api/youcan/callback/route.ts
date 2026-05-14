@@ -1,0 +1,136 @@
+// =============================================================================
+// GET /api/youcan/callback
+//
+// YouCan redirects the merchant here after they accept the OAuth scopes.
+//   1. Verify the state cookie matches the `state` query parameter (CSRF).
+//   2. Exchange `code` for an access token (and refresh token).
+//   3. Upsert a Merchant row. YouCan exposes no documented "/me" endpoint,
+//      so we generate the merchant id ourselves and let the operator fill in
+//      a display slug later from the dashboard. Webhook routing is
+//      URL-based (the merchant id rides in the registered target_url's
+//      query string).
+//   4. Subscribe to the `order.create` and `app.uninstalled` REST Hooks.
+//   5. Redirect into the dashboard.
+//
+// Every failure path redirects to /admin/whatsapp/install-error with a
+// `reason=...` query param. The merchant sees a friendly HTML page; the
+// raw error lives in the structured logs.
+// =============================================================================
+
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import {
+  ensureWebhook,
+  exchangeAccessToken,
+  getYoucanAppConfig,
+  verifyOAuthState,
+} from '@/lib/youcan-oauth';
+import { log, logError, newRequestId } from '@/lib/log';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const STATE_COOKIE = 'youcan_oauth_state';
+
+function errorRedirect(req: NextRequest, reason: string): NextResponse {
+  const dest = new URL('/admin/whatsapp/install-error', req.url);
+  dest.searchParams.set('reason', reason);
+  return NextResponse.redirect(dest, 302);
+}
+
+export async function GET(req: NextRequest) {
+  const requestId = newRequestId();
+  const code = req.nextUrl.searchParams.get('code');
+  const state = req.nextUrl.searchParams.get('state');
+
+  if (!code) {
+    logError('youcan.oauth.reject', { requestId, reason: 'missing-code' });
+    return errorRedirect(req, 'missing-code');
+  }
+
+  const stateSecret = process.env.YOUCAN_STATE_SECRET;
+  const cfg = (() => {
+    try {
+      return getYoucanAppConfig();
+    } catch {
+      return null;
+    }
+  })();
+  if (!stateSecret || !cfg) {
+    logError('youcan.oauth.reject', { requestId, reason: 'app-not-configured' });
+    return errorRedirect(req, 'app-not-configured');
+  }
+
+  const cookieValue = req.cookies.get(STATE_COOKIE)?.value ?? null;
+  if (!verifyOAuthState(state, cookieValue, stateSecret)) {
+    logError('youcan.oauth.reject', { requestId, reason: 'invalid-state' });
+    return errorRedirect(req, 'invalid-state');
+  }
+
+  let accessToken: string;
+  let refreshToken: string | null;
+  try {
+    const tokens = await exchangeAccessToken({ code, config: cfg });
+    accessToken = tokens.accessToken;
+    refreshToken = tokens.refreshToken;
+  } catch (err) {
+    logError('youcan.oauth.reject', {
+      requestId,
+      reason: 'token-exchange-failed',
+      message: err instanceof Error ? err.message.slice(0, 200) : String(err),
+    });
+    return errorRedirect(req, 'token-exchange-failed');
+  }
+  log('youcan.oauth.token_exchanged', { requestId, hasRefreshToken: !!refreshToken });
+
+  // The REST Hook signing key is the app-level client secret (per docs).
+  const merchant = await prisma.merchant.create({
+    data: {
+      email: `pending-${Date.now()}@youcan-install.local`,
+      youcanAccessToken: accessToken,
+      youcanRefreshToken: refreshToken,
+      youcanWebhookSecret: cfg.clientSecret,
+      whatsappFromNumber: '',
+      isActive: true,
+    },
+  });
+
+  // Webhook routing: encode the merchant id in the target_url query string.
+  // The webhook handler reads `m` to identify which merchant the event
+  // belongs to, since YouCan's payload-level store id is not documented.
+  const target = (path: string) =>
+    `${cfg.appUrl}${path}?m=${encodeURIComponent(merchant.id)}`;
+
+  try {
+    await Promise.all([
+      ensureWebhook({
+        accessToken,
+        event: 'order.create',
+        targetUrl: target('/api/webhooks/youcan/order-create'),
+      }),
+      ensureWebhook({
+        accessToken,
+        event: 'app.uninstalled',
+        targetUrl: target('/api/webhooks/youcan/app-uninstalled'),
+      }),
+    ]);
+  } catch (err) {
+    // The merchant row exists now — the operator can hit "Re-register
+    // webhooks" from the dashboard once the cause is fixed. Don't roll back
+    // the Merchant create here; doing so would also invalidate the access
+    // token we just minted.
+    logError('youcan.oauth.reject', {
+      requestId,
+      reason: 'webhook-register-failed',
+      merchantId: merchant.id,
+      message: err instanceof Error ? err.message.slice(0, 200) : String(err),
+    });
+    return errorRedirect(req, 'webhook-register-failed');
+  }
+  log('youcan.oauth.installed', { requestId, merchantId: merchant.id });
+
+  const dest = new URL(`/admin/whatsapp/merchants/${merchant.id}`, cfg.appUrl);
+  const res = NextResponse.redirect(dest, 302);
+  res.cookies.set(STATE_COOKIE, '', { path: '/api/youcan', maxAge: 0 });
+  return res;
+}

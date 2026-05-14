@@ -10,23 +10,16 @@
 //   2. Validate the X-Twilio-Signature header.
 //   3. Find the latest PENDING order for the inbound number.
 //   4. Classify the reply → CONFIRM / CANCEL / UNKNOWN.
-//   5. Update the order in Shopify (tag or cancel) and in our DB.
+//   5. Update the order in YouCan (status + note) and in our DB.
 //   6. Reply with empty TwiML so Twilio doesn't echo anything back.
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import {
-  addOrderTags,
-  appendOrderNote,
-  cancelShopifyOrder,
-} from '@/lib/shopify';
-import {
-  classifyReply,
-  validateTwilioSignature,
-  type ReplyIntent,
-} from '@/lib/whatsapp';
-import { fromWhatsAppAddress } from '@/lib/phone';
+import { updateOrderStatus } from '@/lib/youcan';
+import { withAutoRefresh } from '@/lib/youcan-oauth';
+import { validateTwilioSignature } from '@/lib/whatsapp';
+import { log, logError, newRequestId } from '@/lib/log';
 import {
   OrderStatus,
   WhatsAppDirection,
@@ -34,6 +27,12 @@ import {
   type Merchant,
   type Order,
 } from '@prisma/client';
+import {
+  buildTwilioCallbackUrl,
+  extractInboundFields,
+  resolveIntent,
+  resolveStatusSlug,
+} from './inbound';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -47,7 +46,7 @@ const twimlResponse = () =>
   });
 
 export async function POST(req: NextRequest) {
-  // 1. Parse form-urlencoded body.
+  const requestId = newRequestId();
   const rawBody = await req.text();
   const formParams: Record<string, string> = {};
   new URLSearchParams(rawBody).forEach((v, k) => {
@@ -56,34 +55,23 @@ export async function POST(req: NextRequest) {
 
   const signature = req.headers.get('x-twilio-signature');
 
-  // 2. Validate signature.
-  //
-  // The signed URL must match the *public* URL Twilio called. If you're
-  // behind a proxy (Vercel, ngrok, Cloudflare) the proto/host can differ
-  // from what `req.url` reports — let operators override via env var.
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   if (!authToken) {
     return NextResponse.json({ error: 'twilio auth not configured' }, { status: 500 });
   }
 
-  const publicBase = process.env.PUBLIC_BASE_URL?.replace(/\/$/, '');
-  const fullUrl = publicBase
-    ? `${publicBase}${new URL(req.url).pathname}`
-    : req.url;
+  const fullUrl = buildTwilioCallbackUrl(req.url, process.env.PUBLIC_BASE_URL);
 
   if (!validateTwilioSignature(fullUrl, formParams, signature, authToken)) {
+    logError('whatsapp.inbound.reject', { requestId, reason: 'invalid-twilio-signature' });
     return NextResponse.json({ error: 'invalid signature' }, { status: 401 });
   }
 
-  // 3. Find the order.
-  const fromAddr = formParams['From'] ?? '';            // "whatsapp:+213..."
-  const toAddr = formParams['To'] ?? '';                // our number
-  const body = formParams['Body'] ?? '';
-  const buttonPayload = formParams['ButtonPayload'] ?? null;
-  const customerE164 = fromWhatsApp(fromAddr);
-  const merchantWhatsApp = fromWhatsApp(toAddr);
+  const fields = extractInboundFields(formParams);
+  const { customerE164, merchantWhatsApp, body, buttonPayload, messageSid } = fields;
 
   if (!customerE164 || !merchantWhatsApp) {
+    logError('whatsapp.inbound.reject', { requestId, reason: 'unparseable-address' });
     return twimlResponse();
   }
 
@@ -91,7 +79,11 @@ export async function POST(req: NextRequest) {
     where: { whatsappFromNumber: merchantWhatsApp, isActive: true },
   });
   if (!merchant) {
-    // Unknown destination number — ack silently. Don't 4xx; Twilio would retry.
+    logError('whatsapp.inbound.reject', {
+      requestId,
+      reason: 'no-merchant-for-sender',
+      toNumber: merchantWhatsApp,
+    });
     return twimlResponse();
   }
 
@@ -104,13 +96,12 @@ export async function POST(req: NextRequest) {
     orderBy: { createdAt: 'desc' },
   });
 
-  // Always log the inbound message, even if we can't match it to an order.
   await prisma.whatsAppLog.create({
     data: {
       merchantId: merchant.id,
       orderId: order?.id ?? null,
       direction: WhatsAppDirection.INBOUND,
-      providerMessageId: formParams['MessageSid'] ?? null,
+      providerMessageId: messageSid,
       fromNumber: customerE164,
       toNumber: merchantWhatsApp,
       body,
@@ -120,19 +111,40 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  if (!order) return twimlResponse();
+  if (!order) {
+    log('whatsapp.inbound.no_pending_order', { requestId, merchantId: merchant.id });
+    return twimlResponse();
+  }
 
-  // 4. Classify. Prefer the explicit button payload if Twilio supplied one.
-  const intent: ReplyIntent =
-    buttonPayload ? classifyReply(buttonPayload) : classifyReply(body);
+  const intent = resolveIntent(buttonPayload, body);
 
-  if (intent === 'UNKNOWN') return twimlResponse();
+  if (intent === 'UNKNOWN') {
+    log('whatsapp.inbound.unknown_intent', {
+      requestId,
+      merchantId: merchant.id,
+      orderId: order.id,
+      viaButton: !!buttonPayload,
+    });
+    return twimlResponse();
+  }
 
-  // 5. Apply.
   try {
-    await applyIntent(merchant, order, intent);
+    await applyIntent(merchant, order, intent, requestId);
+    log('whatsapp.inbound.applied', {
+      requestId,
+      merchantId: merchant.id,
+      orderId: order.id,
+      intent,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    logError('whatsapp.inbound.sync_failed', {
+      requestId,
+      merchantId: merchant.id,
+      orderId: order.id,
+      intent,
+      message: message.slice(0, 200),
+    });
     await prisma.whatsAppLog.create({
       data: {
         merchantId: merchant.id,
@@ -141,7 +153,7 @@ export async function POST(req: NextRequest) {
         fromNumber: customerE164,
         toNumber: merchantWhatsApp,
         status: WhatsAppMessageStatus.FAILED,
-        errorMessage: `Shopify sync failed: ${message}`.slice(0, 1000),
+        errorMessage: `YouCan sync failed: ${message}`.slice(0, 1000),
       },
     });
   }
@@ -149,50 +161,37 @@ export async function POST(req: NextRequest) {
   return twimlResponse();
 }
 
-// --- helpers ----------------------------------------------------------------
-
-function fromWhatsApp(addr: string | undefined): string | null {
-  if (!addr) return null;
-  const v = fromWhatsAppAddress(addr).trim();
-  return v.length > 0 ? v : null;
-}
-
 async function applyIntent(
   merchant: Merchant,
   order: Order,
   intent: 'CONFIRM' | 'CANCEL',
+  requestId: string,
 ): Promise<void> {
-  const auth = {
-    shopDomain: merchant.shopifyDomain,
-    accessToken: merchant.shopifyAccessToken,
-  };
+  const slug = resolveStatusSlug(merchant, intent);
 
-  if (intent === 'CONFIRM') {
-    await addOrderTags(auth, order.shopifyOrderId, ['cod-confirmed', 'whatsapp-confirmed']);
-    await appendOrderNote(
-      auth,
-      order.shopifyOrderId,
-      `COD order confirmed by customer via WhatsApp on ${new Date().toISOString()}`,
-    );
-    await prisma.order.update({
-      where: { id: order.id },
-      data: {
-        status: OrderStatus.CONFIRMED,
-        respondedAt: new Date(),
-        shopifyUpdatedAt: new Date(),
+  await withAutoRefresh(
+    {
+      merchant,
+      persistTokens: async (t) => {
+        await prisma.merchant.update({
+          where: { id: merchant.id },
+          data: {
+            youcanAccessToken: t.accessToken,
+            youcanRefreshToken: t.refreshToken,
+          },
+        });
       },
-    });
-    return;
-  }
+      logContext: { requestId, merchantId: merchant.id },
+    },
+    (auth) => updateOrderStatus(auth, order.youcanOrderId, slug),
+  );
 
-  // CANCEL
-  await cancelShopifyOrder(auth, order.shopifyOrderId, 'customer');
   await prisma.order.update({
     where: { id: order.id },
     data: {
-      status: OrderStatus.CANCELLED,
+      status: intent === 'CONFIRM' ? OrderStatus.CONFIRMED : OrderStatus.CANCELLED,
       respondedAt: new Date(),
-      shopifyUpdatedAt: new Date(),
+      youcanUpdatedAt: new Date(),
     },
   });
 }

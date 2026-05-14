@@ -1,0 +1,2 @@
+# Please do not edit this manually. You should use `prisma migrate` and not touch this file.
+provider = "postgresql"
