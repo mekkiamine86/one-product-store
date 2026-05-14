@@ -184,18 +184,25 @@ export async function withAutoRefresh<T>(
       accessToken: string;
       refreshToken: string | null;
     }) => Promise<void>;
+    /**
+     * Caller-supplied fields merged into the refresh-attempt log lines.
+     * Typically `{ requestId, merchantId }` so the lines correlate with
+     * the inbound request that triggered them.
+     */
+    logContext?: Record<string, string>;
     refresh?: typeof refreshAccessToken;
   },
   call: (auth: YoucanAuth) => Promise<T>,
 ): Promise<T> {
   const refresh = args.refresh ?? refreshAccessToken;
+  const ctx = args.logContext ?? {};
   try {
     return await call({ accessToken: args.merchant.youcanAccessToken });
   } catch (err) {
     if (!(err instanceof YoucanApiError) || err.status !== 401) throw err;
     if (!args.merchant.youcanRefreshToken) throw err;
 
-    log('youcan.token.refresh_attempt');
+    log('youcan.token.refresh_attempt', ctx);
     const refreshed = await refresh({
       refreshToken: args.merchant.youcanRefreshToken,
     });
@@ -204,7 +211,7 @@ export async function withAutoRefresh<T>(
       accessToken: refreshed.accessToken,
       refreshToken: nextRefreshToken,
     });
-    log('youcan.token.refreshed', { rotated: !!refreshed.refreshToken });
+    log('youcan.token.refreshed', { ...ctx, rotated: !!refreshed.refreshToken });
     return call({ accessToken: refreshed.accessToken });
   }
 }

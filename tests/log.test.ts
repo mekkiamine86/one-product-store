@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { log, logError } from '../lib/log';
+import { log, logError, newRequestId } from '../lib/log';
 
 function capture(stream: 'stdout' | 'stderr'): { lines: string[]; restore: () => void } {
   const lines: string[] = [];
@@ -69,4 +69,22 @@ test('log works with no context', () => {
   const parsed = JSON.parse(out.lines[0]);
   assert.equal(parsed.event, 'test.bare');
   assert.equal(parsed.level, 'info');
+});
+
+test('newRequestId returns an 8-char base64url id', () => {
+  const id = newRequestId();
+  assert.equal(id.length, 8);
+  // base64url alphabet only
+  assert.match(id, /^[A-Za-z0-9_-]+$/);
+});
+
+test('newRequestId returns distinct ids on successive calls', () => {
+  const ids = new Set([
+    newRequestId(),
+    newRequestId(),
+    newRequestId(),
+    newRequestId(),
+    newRequestId(),
+  ]);
+  assert.equal(ids.size, 5);
 });

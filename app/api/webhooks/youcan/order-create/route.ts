@@ -18,7 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyYoucanWebhook, YOUCAN_SIGNATURE_HEADER } from '@/lib/youcan';
 import { sendOrderConfirmation } from '@/lib/send-confirmation';
-import { log, logError } from '@/lib/log';
+import { log, logError, newRequestId } from '@/lib/log';
 import { OrderStatus } from '@prisma/client';
 import { extractOrderFields, type YoucanOrderPayload } from './extract';
 
@@ -26,11 +26,12 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  const requestId = newRequestId();
   const rawBody = await req.text();
 
   const signatureHeader = req.headers.get(YOUCAN_SIGNATURE_HEADER);
   if (!signatureHeader) {
-    logError('youcan.order_create.reject', { reason: 'missing-signature' });
+    logError('youcan.order_create.reject', { requestId, reason: 'missing-signature' });
     return NextResponse.json(
       { error: 'missing signature header' },
       { status: 400 },
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
 
   const merchantId = req.nextUrl.searchParams.get('m');
   if (!merchantId) {
-    logError('youcan.order_create.reject', { reason: 'missing-merchant-id' });
+    logError('youcan.order_create.reject', { requestId, reason: 'missing-merchant-id' });
     return NextResponse.json(
       { error: 'missing merchant identifier' },
       { status: 400 },
@@ -49,6 +50,7 @@ export async function POST(req: NextRequest) {
   const merchant = await prisma.merchant.findUnique({ where: { id: merchantId } });
   if (!merchant || !merchant.isActive) {
     logError('youcan.order_create.reject', {
+      requestId,
       reason: 'unknown-or-inactive-merchant',
       merchantId,
     });
@@ -57,6 +59,7 @@ export async function POST(req: NextRequest) {
 
   if (!verifyYoucanWebhook(rawBody, signatureHeader, merchant.youcanWebhookSecret)) {
     logError('youcan.order_create.reject', {
+      requestId,
       reason: 'invalid-signature',
       merchantId: merchant.id,
     });
@@ -68,6 +71,7 @@ export async function POST(req: NextRequest) {
     payload = JSON.parse(rawBody);
   } catch {
     logError('youcan.order_create.reject', {
+      requestId,
       reason: 'invalid-json',
       merchantId: merchant.id,
     });
@@ -111,6 +115,7 @@ export async function POST(req: NextRequest) {
 
   const outcome = await sendOrderConfirmation(merchant, order);
   log('youcan.order_create.handled', {
+    requestId,
     merchantId: merchant.id,
     orderId: order.id,
     youcanOrderId: String(payload.id),

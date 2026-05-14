@@ -19,7 +19,7 @@ import { prisma } from '@/lib/prisma';
 import { updateOrderStatus } from '@/lib/youcan';
 import { withAutoRefresh } from '@/lib/youcan-oauth';
 import { validateTwilioSignature } from '@/lib/whatsapp';
-import { log, logError } from '@/lib/log';
+import { log, logError, newRequestId } from '@/lib/log';
 import {
   OrderStatus,
   WhatsAppDirection,
@@ -46,6 +46,7 @@ const twimlResponse = () =>
   });
 
 export async function POST(req: NextRequest) {
+  const requestId = newRequestId();
   const rawBody = await req.text();
   const formParams: Record<string, string> = {};
   new URLSearchParams(rawBody).forEach((v, k) => {
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
   const fullUrl = buildTwilioCallbackUrl(req.url, process.env.PUBLIC_BASE_URL);
 
   if (!validateTwilioSignature(fullUrl, formParams, signature, authToken)) {
-    logError('whatsapp.inbound.reject', { reason: 'invalid-twilio-signature' });
+    logError('whatsapp.inbound.reject', { requestId, reason: 'invalid-twilio-signature' });
     return NextResponse.json({ error: 'invalid signature' }, { status: 401 });
   }
 
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest) {
   const { customerE164, merchantWhatsApp, body, buttonPayload, messageSid } = fields;
 
   if (!customerE164 || !merchantWhatsApp) {
-    logError('whatsapp.inbound.reject', { reason: 'unparseable-address' });
+    logError('whatsapp.inbound.reject', { requestId, reason: 'unparseable-address' });
     return twimlResponse();
   }
 
@@ -79,6 +80,7 @@ export async function POST(req: NextRequest) {
   });
   if (!merchant) {
     logError('whatsapp.inbound.reject', {
+      requestId,
       reason: 'no-merchant-for-sender',
       toNumber: merchantWhatsApp,
     });
@@ -110,7 +112,7 @@ export async function POST(req: NextRequest) {
   });
 
   if (!order) {
-    log('whatsapp.inbound.no_pending_order', { merchantId: merchant.id });
+    log('whatsapp.inbound.no_pending_order', { requestId, merchantId: merchant.id });
     return twimlResponse();
   }
 
@@ -118,6 +120,7 @@ export async function POST(req: NextRequest) {
 
   if (intent === 'UNKNOWN') {
     log('whatsapp.inbound.unknown_intent', {
+      requestId,
       merchantId: merchant.id,
       orderId: order.id,
       viaButton: !!buttonPayload,
@@ -126,8 +129,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await applyIntent(merchant, order, intent);
+    await applyIntent(merchant, order, intent, requestId);
     log('whatsapp.inbound.applied', {
+      requestId,
       merchantId: merchant.id,
       orderId: order.id,
       intent,
@@ -135,6 +139,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logError('whatsapp.inbound.sync_failed', {
+      requestId,
       merchantId: merchant.id,
       orderId: order.id,
       intent,
@@ -160,6 +165,7 @@ async function applyIntent(
   merchant: Merchant,
   order: Order,
   intent: 'CONFIRM' | 'CANCEL',
+  requestId: string,
 ): Promise<void> {
   const slug = resolveStatusSlug(merchant, intent);
 
@@ -175,6 +181,7 @@ async function applyIntent(
           },
         });
       },
+      logContext: { requestId, merchantId: merchant.id },
     },
     (auth) => updateOrderStatus(auth, order.youcanOrderId, slug),
   );

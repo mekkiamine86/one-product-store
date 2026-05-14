@@ -6,18 +6,31 @@
 // decision point. Two functions: log() for info, logError() for errors.
 //
 // Fields:
-//   ts     — ISO timestamp
-//   level  — "info" | "error"
-//   event  — short stable identifier ("youcan.webhook.received")
-//   ...   — caller-supplied context, must be JSON-serialisable
+//   ts        — ISO timestamp
+//   level     — "info" | "error"
+//   event     — short stable identifier ("youcan.webhook.received")
+//   requestId — optional 8-char correlation id, emitted by handlers so
+//               every log line from one inbound request can be grouped
+//   ...       — caller-supplied context, must be JSON-serialisable
 //
 // IMPORTANT: do not pass anything sensitive (access tokens, refresh tokens,
 // webhook secrets, raw customer PII). Merchant id, YouCan order id, intents,
 // HTTP statuses, counts are all fine.
 // =============================================================================
 
+import crypto from 'node:crypto';
+
 type Json = string | number | boolean | null | Json[] | { [k: string]: Json };
 type Context = Record<string, Json | undefined>;
+
+/**
+ * Mint a short correlation id for a single inbound request. 6 random bytes
+ * → 8 base64url chars; ~2^48 unique values, plenty for the lifetime of one
+ * request. Cheap to grep on.
+ */
+export function newRequestId(): string {
+  return crypto.randomBytes(6).toString('base64url');
+}
 
 function emit(level: 'info' | 'error', event: string, data: Context | undefined): void {
   const line: Record<string, unknown> = {
