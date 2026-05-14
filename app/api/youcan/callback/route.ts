@@ -64,7 +64,9 @@ export async function GET(req: NextRequest) {
   const merchant = await prisma.merchant.create({
     data: {
       email: `pending-${Date.now()}@youcan-install.local`,
-      youcanStoreSlug: `pending-${crypto.randomUUID()}.youcan.shop`,
+      // youcanStoreSlug / youcanStoreId stay NULL until either the operator
+      // sets a display label from the dashboard or the first order.create
+      // webhook arrives with a platform store id we can capture.
       youcanAccessToken: accessToken,
       youcanRefreshToken: refreshToken,
       youcanWebhookSecret: cfg.clientSecret,

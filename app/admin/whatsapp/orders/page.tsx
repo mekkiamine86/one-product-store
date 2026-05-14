@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { OrderStatus, Prisma } from '@prisma/client';
-import { formatDate, formatMoney, orderStatusBadge } from '../_lib/format';
+import { formatDate, formatMoney, orderStatusBadge, storeSlugLabel } from '../_lib/format';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,7 +91,7 @@ export default async function OrdersPage({
           >
             <option value="">All merchants</option>
             {merchants.map((m) => (
-              <option key={m.id} value={m.id}>{m.youcanStoreSlug}</option>
+              <option key={m.id} value={m.id}>{storeSlugLabel(m.youcanStoreSlug)}</option>
             ))}
           </select>
         </label>
@@ -137,7 +137,7 @@ export default async function OrdersPage({
                       {o.youcanOrderRef}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-black/70">{o.merchant.youcanStoreSlug}</td>
+                  <td className="px-4 py-3 text-black/70">{storeSlugLabel(o.merchant.youcanStoreSlug)}</td>
                   <td className="px-4 py-3">{o.customerName}</td>
                   <td className="px-4 py-3 font-mono text-xs">{o.customerPhone}</td>
                   <td className="px-4 py-3 tabular-nums">

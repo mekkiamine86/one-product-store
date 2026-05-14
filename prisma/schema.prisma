@@ -49,7 +49,14 @@ model Merchant {
   name                String?
 
   // YouCan
-  youcanStoreSlug     String   @unique // e.g. "my-store.youcan.shop"
+  // Display-only label, e.g. "my-store.youcan.shop". YouCan exposes no
+  // documented "/me" endpoint so we can't populate this at install time;
+  // the operator fills it in from the merchant detail screen.
+  youcanStoreSlug     String?
+  // Platform-provided store id. Captured opportunistically from the first
+  // order.create webhook payload (if YouCan includes a `store_id` /
+  // `store.id` field — kept nullable so we degrade gracefully if not).
+  youcanStoreId       String?
   youcanAccessToken   String              // OAuth access token (encrypt in prod)
   youcanRefreshToken  String?             // OAuth refresh token (encrypt in prod)
   youcanWebhookSecret String              // shared secret used to sign webhooks
@@ -78,7 +85,7 @@ model Merchant {
   orders              Order[]
   whatsappLogs        WhatsAppLog[]
 
-  @@index([youcanStoreSlug])
+  @@index([youcanStoreId])
 }
 
 /// A YouCan order tracked through the confirmation pipeline.

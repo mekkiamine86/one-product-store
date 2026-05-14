@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
-import { formatDate, formatMoney, orderStatusBadge } from '../../_lib/format';
+import { formatDate, formatMoney, orderStatusBadge, storeSlugLabel } from '../../_lib/format';
 import SettingsForm from './SettingsForm';
 
 export const dynamic = 'force-dynamic';
@@ -27,7 +27,11 @@ export default async function MerchantDetailPage({
     <div className="space-y-8">
       <header>
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold">{merchant.youcanStoreSlug}</h1>
+          <h1 className="text-2xl font-semibold">
+            {merchant.youcanStoreSlug?.trim() || (
+              <span className="text-black/40">{storeSlugLabel(merchant.youcanStoreSlug)}</span>
+            )}
+          </h1>
           {merchant.isActive ? (
             <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
               Active
@@ -53,6 +57,7 @@ export default async function MerchantDetailPage({
           initial={{
             email: merchant.email,
             name: merchant.name ?? '',
+            youcanStoreSlug: merchant.youcanStoreSlug ?? '',
             whatsappFromNumber: merchant.whatsappFromNumber,
             whatsappTemplateSid: merchant.whatsappTemplateSid ?? '',
             defaultCountryCode: merchant.defaultCountryCode,
@@ -60,6 +65,7 @@ export default async function MerchantDetailPage({
             youcanCancelledSlug: merchant.youcanCancelledSlug,
             isActive: merchant.isActive,
           }}
+          youcanStoreId={merchant.youcanStoreId}
         />
       </section>
 

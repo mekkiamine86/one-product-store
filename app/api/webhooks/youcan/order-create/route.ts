@@ -53,6 +53,10 @@ interface YoucanOrderPayload {
   shipping_phone?: string | null;
   shipping?: { phone?: string | null };
   variants?: YoucanVariant[];
+  // YouCan's payload schema isn't fully documented; we accept any of these
+  // shapes for the store id and ignore them all gracefully if absent.
+  store_id?: string | number;
+  store?: { id?: string | number; slug?: string };
 }
 
 export async function POST(req: NextRequest) {
@@ -115,6 +119,17 @@ export async function POST(req: NextRequest) {
       ?.map((v) => `${v.quantity}x ${v.product?.name ?? v.product_name ?? 'item'}`)
       .join(', ')
       .slice(0, 500) ?? null;
+
+  // Opportunistically capture the platform store id the first time we see one.
+  const payloadStoreId =
+    payload.store_id !== undefined ? String(payload.store_id) :
+    payload.store?.id !== undefined ? String(payload.store.id) : null;
+  if (payloadStoreId && merchant.youcanStoreId !== payloadStoreId) {
+    await prisma.merchant.update({
+      where: { id: merchant.id },
+      data: { youcanStoreId: payloadStoreId },
+    });
+  }
 
   const order = await prisma.order.upsert({
     where: {

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { WhatsAppDirection } from '@prisma/client';
-import { formatDate, formatMoney, orderStatusBadge, waStatusLabel } from '../../_lib/format';
+import { formatDate, formatMoney, orderStatusBadge, storeSlugLabel, waStatusLabel } from '../../_lib/format';
 import ResendButton from './ResendButton';
 
 export const dynamic = 'force-dynamic';
@@ -38,7 +38,7 @@ export default async function OrderDetailPage({
             href={`/admin/whatsapp/merchants/${order.merchant.id}`}
             className="text-sm text-black/60 hover:text-black"
           >
-            {order.merchant.youcanStoreSlug}
+            {storeSlugLabel(order.merchant.youcanStoreSlug)}
           </Link>
         </div>
       </div>

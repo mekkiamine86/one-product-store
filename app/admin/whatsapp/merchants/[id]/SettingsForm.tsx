@@ -8,6 +8,7 @@ interface Props {
   initial: {
     email: string;
     name: string;
+    youcanStoreSlug: string;
     whatsappFromNumber: string;
     whatsappTemplateSid: string;
     defaultCountryCode: string;
@@ -15,9 +16,10 @@ interface Props {
     youcanCancelledSlug: string;
     isActive: boolean;
   };
+  youcanStoreId: string | null;
 }
 
-export default function SettingsForm({ merchantId, initial }: Props) {
+export default function SettingsForm({ merchantId, initial, youcanStoreId }: Props) {
   const router = useRouter();
   const [form, setForm] = useState(initial);
   const [saving, setSaving] = useState(false);
@@ -63,6 +65,23 @@ export default function SettingsForm({ merchantId, initial }: Props) {
           value={form.name}
           onChange={(e) => update('name', e.target.value)}
           className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm focus:border-black focus:outline-none"
+        />
+      </Field>
+
+      <Field
+        label="YouCan store"
+        hint={
+          youcanStoreId
+            ? `Optional display label. Platform store id: ${youcanStoreId}`
+            : 'Optional display label, e.g. "my-store.youcan.shop".'
+        }
+      >
+        <input
+          type="text"
+          placeholder="my-store.youcan.shop"
+          value={form.youcanStoreSlug}
+          onChange={(e) => update('youcanStoreSlug', e.target.value)}
+          className="w-full rounded-lg border border-black/15 px-3 py-2 font-mono text-sm focus:border-black focus:outline-none"
         />
       </Field>
 

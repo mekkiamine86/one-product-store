@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
-import { formatDate } from '../_lib/format';
+import { formatDate, storeSlugLabel } from '../_lib/format';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,7 +43,11 @@ export default async function MerchantsPage() {
             )}
             {merchants.map((m) => (
               <tr key={m.id} className="border-t border-black/5">
-                <td className="px-4 py-3 font-medium">{m.youcanStoreSlug}</td>
+                <td className="px-4 py-3 font-medium">
+                  {m.youcanStoreSlug?.trim() ?? (
+                    <span className="text-black/40">{storeSlugLabel(m.youcanStoreSlug)}</span>
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   {m.isActive ? (
                     <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">

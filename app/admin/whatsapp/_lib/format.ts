@@ -41,3 +41,9 @@ export function waStatusLabel(status: WhatsAppMessageStatus | undefined | null):
   if (!status) return '—';
   return status.toLowerCase().replace(/_/g, ' ');
 }
+
+/** Render a YouCan store slug or its placeholder when the operator hasn't
+ *  set one yet (YouCan exposes no /me endpoint to populate it at install). */
+export function storeSlugLabel(slug: string | null | undefined): string {
+  return slug?.trim() || '(unset store)';
+}

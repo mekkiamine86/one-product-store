@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { OrderStatus } from '@prisma/client';
-import { formatDate, formatMoney, orderStatusBadge } from './_lib/format';
+import { formatDate, formatMoney, orderStatusBadge, storeSlugLabel } from './_lib/format';
 
 export const dynamic = 'force-dynamic';
 
@@ -114,7 +114,7 @@ export default async function OverviewPage() {
                         {o.youcanOrderRef}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-black/70">{o.merchant.youcanStoreSlug}</td>
+                    <td className="px-4 py-3 text-black/70">{storeSlugLabel(o.merchant.youcanStoreSlug)}</td>
                     <td className="px-4 py-3">{o.customerName}</td>
                     <td className="px-4 py-3 tabular-nums">
                       {formatMoney(o.totalAmount, o.currency)}

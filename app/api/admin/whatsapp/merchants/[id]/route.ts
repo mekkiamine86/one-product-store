@@ -15,6 +15,7 @@ export const dynamic = 'force-dynamic';
 interface PatchBody {
   email?: string;
   name?: string;
+  youcanStoreSlug?: string;
   whatsappFromNumber?: string;
   whatsappTemplateSid?: string;
   defaultCountryCode?: string;
@@ -56,6 +57,16 @@ export async function PATCH(
   }
   if (body.name !== undefined) {
     data.name = body.name.trim() || null;
+  }
+  if (body.youcanStoreSlug !== undefined) {
+    const v = body.youcanStoreSlug.trim();
+    if (v.length > 128) {
+      return NextResponse.json(
+        { error: 'youcanStoreSlug must be 128 characters or fewer' },
+        { status: 400 },
+      );
+    }
+    data.youcanStoreSlug = v || null;
   }
   if (body.whatsappFromNumber !== undefined) {
     const v = body.whatsappFromNumber.trim();
@@ -119,6 +130,7 @@ export async function PATCH(
         id: true,
         email: true,
         name: true,
+        youcanStoreSlug: true,
         whatsappFromNumber: true,
         whatsappTemplateSid: true,
         defaultCountryCode: true,
