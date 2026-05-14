@@ -45,7 +45,7 @@ if (!url) {
     });
 
   before(async () => {
-    GET = (await import('../../app/api/cron/expire-pending/route')).GET as typeof GET;
+    GET = (await import('../../app/api/cron/expire-pending/route')).GET as unknown as typeof GET;
     prisma = (await import('../../lib/prisma')).prisma;
     OrderStatus = (await import('@prisma/client')).OrderStatus;
     await prisma.whatsAppLog.deleteMany();
